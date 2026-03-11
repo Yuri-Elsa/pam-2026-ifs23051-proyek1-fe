@@ -1,0 +1,71 @@
+# ═══════════════════════════════════════════════════════════════
+#  WatchList Android — .gitignore
+# ═══════════════════════════════════════════════════════════════
+
+# ── Gradle ───────────────────────────────────────────────────
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle-wrapper.properties
+build/
+**/build/
+
+# ── Android Studio / IntelliJ IDEA ───────────────────────────
+.idea/
+*.iml
+*.ipr
+*.iws
+.navigation/
+captures/
+.editorconfig
+
+# ── Local config (JANGAN di-commit — berisi sdk.dir & BASE_URL) ─
+local.properties
+
+# ── Keystore & signing (RAHASIA) ─────────────────────────────
+*.jks
+*.keystore
+*.pepk
+keystore.properties
+signing.properties
+release.properties
+
+# ── Kode yang di-generate ────────────────────────────────────
+app/src/main/java/**/BuildConfig.java
+app/src/debug/
+app/src/release/
+**/generated/
+
+# ── Output APK / AAB ─────────────────────────────────────────
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# ── ProGuard ─────────────────────────────────────────────────
+proguard/
+*.pro.bak
+
+# ── NDK / CMake ───────────────────────────────────────────────
+.externalNativeBuild/
+.cxx/
+*.so
+*.o
+
+# ── Test & Coverage ───────────────────────────────────────────
+**/test-results/
+**/coverage/
+*.exec
+
+# ── OS ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── Log ──────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Heap Dump ────────────────────────────────────────────────
+*.hprof

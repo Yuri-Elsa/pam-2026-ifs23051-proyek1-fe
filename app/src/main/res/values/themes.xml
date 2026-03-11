@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base theme required so the launcher activity doesn't crash before Compose sets the theme -->
+    <style name="Theme.WatchList" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
