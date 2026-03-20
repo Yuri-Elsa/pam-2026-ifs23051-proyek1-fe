@@ -32,7 +32,7 @@ android {
         buildConfigField(
             "String",
             "BASE_URL",
-            "\"${localProps.getProperty("BASE_URL", "https://pam-2026-ifs23051-proyek1-be.yuriii.fun:8080/")}\""
+            "\"${localProps.getProperty("BASE_URL", "https://pam-2026-proyek1-ifs23051-be.yuriii.fun:8080/")}\""
         )
     }
 
