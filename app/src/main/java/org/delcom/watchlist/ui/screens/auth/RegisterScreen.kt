@@ -42,6 +42,7 @@ fun RegisterScreen(
     val uiState by authViewModel.uiState.collectAsState()
     val scope   = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) { authViewModel.resetRegisterState() }
 
@@ -56,7 +57,7 @@ fun RegisterScreen(
             }
             is AuthActionUIState.Error -> {
                 isLoading = false
-                scope.launch { snackbarHost.showSnackbar("error|${s.message}") }
+                errorMessage = s.message
             }
             else -> {}
         }
@@ -96,10 +97,23 @@ fun RegisterScreen(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E2E)),
                 elevation = CardDefaults.cardElevation(12.dp)
             ) {
-                RegisterForm(isLoading = isLoading, onRegister = { name, username, password ->
-                    isLoading = true
-                    authViewModel.register(name, username, password)
-                })
+                RegisterForm(
+                    isLoading = isLoading,
+                    errorMessage = errorMessage,
+                    onClearError = { errorMessage = "" },
+                    onRegister = { name, username, password ->
+                        errorMessage = ""
+                        // Validasi client-side
+                        when {
+                            name.isBlank() -> { errorMessage = "Nama tidak boleh kosong"; return@RegisterForm }
+                            username.isBlank() -> { errorMessage = "Username tidak boleh kosong"; return@RegisterForm }
+                            password.isBlank() -> { errorMessage = "Password tidak boleh kosong"; return@RegisterForm }
+                            password.length < 6 -> { errorMessage = "Password minimal 6 karakter"; return@RegisterForm }
+                        }
+                        isLoading = true
+                        authViewModel.register(name, username, password)
+                    }
+                )
             }
 
             Spacer(Modifier.height(20.dp))
@@ -115,7 +129,12 @@ fun RegisterScreen(
 }
 
 @Composable
-private fun RegisterForm(isLoading: Boolean, onRegister: (String, String, String) -> Unit) {
+private fun RegisterForm(
+    isLoading: Boolean,
+    errorMessage: String,
+    onClearError: () -> Unit,
+    onRegister: (String, String, String) -> Unit
+) {
     var name     by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -126,42 +145,92 @@ private fun RegisterForm(isLoading: Boolean, onRegister: (String, String, String
     Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Daftar", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = Color.White))
 
-        OutlinedTextField(value = name, onValueChange = { name = it },
+        // Error banner
+        if (errorMessage.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFFEBEE), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(18.dp))
+                Text(
+                    text = errorMessage,
+                    color = Color(0xFFD32F2F),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onClearError, modifier = Modifier.size(20.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(14.dp))
+                }
+            }
+        }
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it; onClearError() },
             label = { Text("Nama Lengkap") },
             leadingIcon = { Icon(Icons.Default.Badge, null, tint = CinemaRed) },
-            singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
             colors = cinemaTextFieldColors(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             keyboardActions = KeyboardActions(onNext = { uFocus.requestFocus() })
         )
 
-        OutlinedTextField(value = username, onValueChange = { username = it },
+        OutlinedTextField(
+            value = username,
+            onValueChange = { username = it; onClearError() },
             label = { Text("Username") },
             leadingIcon = { Icon(Icons.Default.Person, null, tint = CinemaRed) },
-            singleLine = true, modifier = Modifier.fillMaxWidth().focusRequester(uFocus), shape = RoundedCornerShape(12.dp),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().focusRequester(uFocus),
+            shape = RoundedCornerShape(12.dp),
             colors = cinemaTextFieldColors(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             keyboardActions = KeyboardActions(onNext = { pFocus.requestFocus() })
         )
 
-        OutlinedTextField(value = password, onValueChange = { password = it },
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it; onClearError() },
             label = { Text("Password") },
             leadingIcon = { Icon(Icons.Default.Lock, null, tint = CinemaRed) },
-            trailingIcon = { IconButton(onClick = { showPass = !showPass }) { Icon(if (showPass) Icons.Default.Visibility else Icons.Default.VisibilityOff, null, tint = Color.White.copy(0.5f)) } },
+            trailingIcon = {
+                IconButton(onClick = { showPass = !showPass }) {
+                    Icon(if (showPass) Icons.Default.Visibility else Icons.Default.VisibilityOff, null, tint = Color.White.copy(0.5f))
+                }
+            },
             visualTransformation = if (showPass) VisualTransformation.None else PasswordVisualTransformation(),
-            singleLine = true, modifier = Modifier.fillMaxWidth().focusRequester(pFocus), shape = RoundedCornerShape(12.dp),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().focusRequester(pFocus),
+            shape = RoundedCornerShape(12.dp),
             colors = cinemaTextFieldColors(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { focusMgr.clearFocus(); if (name.isNotBlank() && username.isNotBlank() && password.isNotBlank()) onRegister(name, username, password) })
+            keyboardActions = KeyboardActions(onSend = {
+                focusMgr.clearFocus()
+                onRegister(name, username, password)
+            }),
+            supportingText = {
+                Text(
+                    "Minimal 6 karakter",
+                    color = if (password.isNotEmpty() && password.length < 6) Color(0xFFD32F2F)
+                    else Color.White.copy(alpha = 0.4f),
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
         )
 
         Spacer(Modifier.height(4.dp))
 
         Button(
-            onClick = { if (name.isNotBlank() && username.isNotBlank() && password.isNotBlank()) onRegister(name, username, password) },
+            onClick = { onRegister(name, username, password) },
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(12.dp),
-            enabled = !isLoading && name.isNotBlank() && username.isNotBlank() && password.isNotBlank(),
+            enabled = !isLoading,
             colors = ButtonDefaults.buttonColors(containerColor = CinemaRed)
         ) {
             if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)

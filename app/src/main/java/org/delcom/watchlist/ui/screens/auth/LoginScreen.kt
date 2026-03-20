@@ -43,13 +43,14 @@ fun LoginScreen(
     val uiState by authViewModel.uiState.collectAsState()
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
 
     LaunchedEffect(uiState.auth) {
         if (!isLoading) return@LaunchedEffect
         when (val s = uiState.auth) {
             is AuthUIState.Error -> {
                 isLoading = false
-                scope.launch { snackbarHost.showSnackbar("error|${s.message}") }
+                errorMessage = s.message
             }
             is AuthUIState.Success -> { /* NavHost handles redirect */ }
             else -> {}
@@ -70,7 +71,6 @@ fun LoginScreen(
         ) {
             Spacer(Modifier.height(72.dp))
 
-            // Cinema icon
             Box(
                 modifier = Modifier
                     .size(90.dp)
@@ -103,7 +103,6 @@ fun LoginScreen(
 
             Spacer(Modifier.height(48.dp))
 
-            // Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
@@ -112,7 +111,15 @@ fun LoginScreen(
             ) {
                 LoginForm(
                     isLoading = isLoading,
+                    errorMessage = errorMessage,
+                    onClearError = { errorMessage = "" },
                     onLogin = { u, p ->
+                        errorMessage = ""
+                        // Validasi client-side
+                        when {
+                            u.isBlank() -> { errorMessage = "Username tidak boleh kosong"; return@LoginForm }
+                            p.isBlank() -> { errorMessage = "Password tidak boleh kosong"; return@LoginForm }
+                        }
                         isLoading = true
                         authViewModel.login(u, p)
                     }
@@ -124,10 +131,7 @@ fun LoginScreen(
             TextButton(onClick = {
                 navController.navigate(RouteHelper.REGISTER) { launchSingleTop = true }
             }) {
-                Text(
-                    "Belum punya akun? ",
-                    color = Color.White.copy(alpha = 0.6f)
-                )
+                Text("Belum punya akun? ", color = Color.White.copy(alpha = 0.6f))
                 Text("Daftar", color = CinemaGold, fontWeight = FontWeight.Bold)
             }
 
@@ -137,7 +141,12 @@ fun LoginScreen(
 }
 
 @Composable
-private fun LoginForm(isLoading: Boolean, onLogin: (String, String) -> Unit) {
+private fun LoginForm(
+    isLoading: Boolean,
+    errorMessage: String,
+    onClearError: () -> Unit,
+    onLogin: (String, String) -> Unit
+) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var showPass by remember { mutableStateOf(false) }
@@ -150,9 +159,32 @@ private fun LoginForm(isLoading: Boolean, onLogin: (String, String) -> Unit) {
             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = Color.White)
         )
 
+        // Error banner
+        if (errorMessage.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFFEBEE), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(18.dp))
+                Text(
+                    text = errorMessage,
+                    color = Color(0xFFD32F2F),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onClearError, modifier = Modifier.size(20.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(14.dp))
+                }
+            }
+        }
+
         OutlinedTextField(
             value = username,
-            onValueChange = { username = it },
+            onValueChange = { username = it; onClearError() },
             label = { Text("Username") },
             leadingIcon = { Icon(Icons.Default.Person, null, tint = CinemaRed) },
             singleLine = true,
@@ -165,7 +197,7 @@ private fun LoginForm(isLoading: Boolean, onLogin: (String, String) -> Unit) {
 
         OutlinedTextField(
             value = password,
-            onValueChange = { password = it },
+            onValueChange = { password = it; onClearError() },
             label = { Text("Password") },
             leadingIcon = { Icon(Icons.Default.Lock, null, tint = CinemaRed) },
             trailingIcon = {
@@ -179,16 +211,19 @@ private fun LoginForm(isLoading: Boolean, onLogin: (String, String) -> Unit) {
             shape = RoundedCornerShape(12.dp),
             colors = cinemaTextFieldColors(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { focusMgr.clearFocus(); if (username.isNotBlank() && password.isNotBlank()) onLogin(username, password) })
+            keyboardActions = KeyboardActions(onSend = {
+                focusMgr.clearFocus()
+                onLogin(username, password)
+            })
         )
 
         Spacer(Modifier.height(4.dp))
 
         Button(
-            onClick = { if (username.isNotBlank() && password.isNotBlank()) onLogin(username, password) },
+            onClick = { onLogin(username, password) },
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(12.dp),
-            enabled = !isLoading && username.isNotBlank() && password.isNotBlank(),
+            enabled = !isLoading,
             colors = ButtonDefaults.buttonColors(containerColor = CinemaRed)
         ) {
             if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
