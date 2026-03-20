@@ -59,7 +59,7 @@ fun MovieDetailScreen(
 
     var isLoading        by remember { mutableStateOf(true) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-    // Timestamp untuk force reload cover setelah upload
+    // coverTs berubah setiap upload sukses → paksa Coil reload
     var coverTs          by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     val movie = (uiState.movie as? MovieUIState.Success)?.data
@@ -107,15 +107,17 @@ fun MovieDetailScreen(
         when (val s = uiState.movieChangeCover) {
             is MovieActionUIState.Success -> {
                 snackbarHost.showSnackbar("success|Poster berhasil diperbarui")
-                // Update timestamp untuk force reload cover
+                movieViewModel.resetMovieCoverState()
                 coverTs = System.currentTimeMillis()
                 authToken?.let { movieViewModel.getMovieById(it, movieId) }
                 isLoading = false
             }
             is MovieActionUIState.Error -> {
                 snackbarHost.showSnackbar("error|${s.message}")
+                movieViewModel.resetMovieCoverState()
                 isLoading = false
             }
+            is MovieActionUIState.Loading -> isLoading = true
             else -> {}
         }
     }
@@ -137,8 +139,8 @@ fun MovieDetailScreen(
 
         Box(modifier = Modifier.weight(1f)) {
             MovieDetailContent(
-                movie = movie,
-                coverTs = coverTs,
+                movie    = movie,
+                coverTs  = coverTs,
                 onChangeCover = { uri, context ->
                     val token = authToken ?: return@MovieDetailContent
                     isLoading = true
@@ -185,18 +187,27 @@ private fun MovieDetailContent(
 
     val status = movie.watchStatus
 
-    // Gunakan coverTs sebagai cache buster — berubah setiap kali upload berhasil
-    val coverImageRequest = remember(movie.id, coverTs) {
-        ImageRequest.Builder(context)
-            .data(ToolsHelper.getMovieImage(movie.id, coverTs.toString()))
+    // FIX UTAMA: gunakan movie.cover (path relatif dari API) langsung
+    // contoh: "uploads/watchlists/948d07d9-....jpg"
+    // bukan di-generate dari movieId
+    val coverUrl = remember(movie.cover, coverTs) {
+        ToolsHelper.getMovieImageUrl(movie.cover, coverTs.toString())
+    }
+    val hasCover = coverUrl != null
+
+    val coverImageRequest = remember(coverUrl) {
+        if (coverUrl == null) null
+        else ImageRequest.Builder(context)
+            .data(coverUrl)
             .memoryCachePolicy(CachePolicy.DISABLED)
             .diskCachePolicy(CachePolicy.DISABLED)
+            .crossfade(true)
             .build()
     }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
 
-        // Hero poster
+        // ── Hero poster ───────────────────────────────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -206,30 +217,45 @@ private fun MovieDetailContent(
                     imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 }
         ) {
-            if (movie.cover != null) {
-                SubcomposeAsyncImage(
-                    model = if (pendingUri != null) pendingUri else coverImageRequest,
-                    contentDescription = movie.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                ) {
-                    when (painter.state) {
-                        is AsyncImagePainter.State.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
-                        is AsyncImagePainter.State.Error   -> LargePlaceholderPoster()
-                        else -> SubcomposeAsyncImageContent()
-                    }
-                }
-            } else {
-                if (pendingUri != null) {
-                    SubcomposeAsyncImage(model = pendingUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop) {
+            when {
+                // 1. Preview lokal setelah user pilih dari galeri
+                pendingUri != null -> {
+                    SubcomposeAsyncImage(
+                        model = pendingUri,
+                        contentDescription = movie.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    ) {
                         when (painter.state) {
-                            is AsyncImagePainter.State.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                            is AsyncImagePainter.State.Loading ->
+                                Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                            is AsyncImagePainter.State.Error -> LargePlaceholderPoster()
                             else -> SubcomposeAsyncImageContent()
                         }
                     }
-                } else {
-                    LargePlaceholderPoster()
                 }
+
+                // 2. Cover dari server — key(coverTs) paksa recreate saat timestamp berubah
+                hasCover -> key(coverTs) {
+                    SubcomposeAsyncImage(
+                        model = coverImageRequest,
+                        contentDescription = movie.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    ) {
+                        when (painter.state) {
+                            is AsyncImagePainter.State.Loading ->
+                                Box(Modifier.fillMaxSize(), Alignment.Center) {
+                                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                                }
+                            is AsyncImagePainter.State.Error -> LargePlaceholderPoster()
+                            else -> SubcomposeAsyncImageContent()
+                        }
+                    }
+                }
+
+                // 3. Belum ada cover
+                else -> LargePlaceholderPoster()
             }
 
             Box(
@@ -245,7 +271,7 @@ private fun MovieDetailContent(
             }
         }
 
-        // Pending cover action bar
+        // ── Action bar pending cover ──────────────────────────────────────────
         if (pendingUri != null) {
             Surface(color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
                 Row(
@@ -262,7 +288,7 @@ private fun MovieDetailContent(
             }
         }
 
-        // Info section
+        // ── Info section ──────────────────────────────────────────────────────
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)

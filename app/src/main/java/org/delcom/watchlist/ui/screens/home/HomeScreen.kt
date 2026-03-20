@@ -170,7 +170,6 @@ fun HomeScreen(
                         itemsIndexed(allMovies, key = { _, m -> m.id }) { _, movie ->
                             MovieItemUI(
                                 movie = movie,
-                                coverUrl = ToolsHelper.getMovieImage(movie.id, movie.updatedAt),
                                 onClick = { navController.navigate(RouteHelper.movieDetail(movie.id)) },
                                 onDelete = { movieViewModel.deleteMovie(authToken, movie.id) },
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)

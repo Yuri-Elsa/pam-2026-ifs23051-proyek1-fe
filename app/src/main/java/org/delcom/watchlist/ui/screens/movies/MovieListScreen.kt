@@ -186,7 +186,6 @@ fun MovieListScreen(
                             itemsIndexed(allMovies, key = { _, m -> m.id }) { _, movie ->
                                 MovieItemUI(
                                     movie = movie,
-                                    coverUrl = ToolsHelper.getMovieImage(movie.id, movie.updatedAt),
                                     onClick = { navController.navigate("movies/${movie.id}") },
                                     onDelete = { movieViewModel.deleteMovie(authToken, movie.id) }
                                 )

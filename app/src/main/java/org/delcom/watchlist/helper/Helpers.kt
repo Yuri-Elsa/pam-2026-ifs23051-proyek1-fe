@@ -11,14 +11,34 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.delcom.watchlist.BuildConfig
 import java.io.ByteArrayOutputStream
-import java.io.InputStream
 
 object ToolsHelper {
-    fun getMovieImage(movieId: String, t: String = "0"): String =
-        "${BuildConfig.BASE_URL}images/watchlists/$movieId?t=$t"
+    /**
+     * Bangun URL cover film.
+     * Backend mengembalikan field `cover` berisi path relatif, contoh:
+     *   "uploads/watchlists/948d07d9-....jpg"
+     * Jadi URL lengkapnya = BASE_URL + cover
+     *
+     * Parameter [coverPath] = nilai `movie.cover` dari API (bisa null/blank → return null).
+     * Parameter [t] = cache-buster timestamp.
+     */
+    fun getMovieImageUrl(coverPath: String?, t: String = "0"): String? {
+        if (coverPath.isNullOrBlank()) return null
+        return "${BuildConfig.BASE_URL}$coverPath?t=$t"
+    }
 
-    fun getUserImage(userId: String, t: String = "0"): String =
-        "${BuildConfig.BASE_URL}images/users/$userId?t=$t"
+    /**
+     * URL foto profil user.
+     * Pola path profil diasumsikan sama: BASE_URL + path relatif dari field photo user.
+     * Jika backend belum mengembalikan field photo, pakai fallback userId.
+     */
+    fun getUserImageUrl(photoPath: String?, userId: String, t: String = "0"): String {
+        return if (!photoPath.isNullOrBlank()) {
+            "${BuildConfig.BASE_URL}$photoPath?t=$t"
+        } else {
+            "${BuildConfig.BASE_URL}images/users/$userId?t=$t"
+        }
+    }
 }
 
 object ImageCompressHelper {

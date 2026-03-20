@@ -12,35 +12,36 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
+import org.delcom.watchlist.helper.ToolsHelper
 import org.delcom.watchlist.network.data.ResponseMovieData
-import org.delcom.watchlist.network.data.WatchStatus
 
 /**
- * Movie list item with:
- *  - Poster thumbnail on the LEFT (60×85 dp, placeholder icon if no cover)
- *  - Title, year (from description prefix), status badge on the right
- *  - Delete button
+ * Movie list item — poster thumbnail di kiri, info di kanan.
+ * coverUrl tidak lagi diterima dari luar; dibangun dari movie.cover langsung.
  */
 @Composable
 fun MovieItemUI(
     movie: ResponseMovieData,
-    coverUrl: String,
     onClick: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     val status = movie.watchStatus
+
+    // Bangun URL dari path cover yang dikembalikan API
+    // Contoh: movie.cover = "uploads/watchlists/948d07d9-....jpg"
+    val coverUrl = remember(movie.cover, movie.updatedAt) {
+        ToolsHelper.getMovieImageUrl(movie.cover, movie.updatedAt)
+    }
 
     Card(
         modifier = modifier
@@ -56,7 +57,7 @@ fun MovieItemUI(
                 .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.Top
         ) {
-            // ── Poster image ──────────────────────────────────────────────────
+            // ── Poster ────────────────────────────────────────────────────────
             Box(
                 modifier = Modifier
                     .width(70.dp)
@@ -65,7 +66,7 @@ fun MovieItemUI(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
-                if (movie.cover != null) {
+                if (coverUrl != null) {
                     SubcomposeAsyncImage(
                         model = coverUrl,
                         contentDescription = movie.title,
@@ -91,7 +92,7 @@ fun MovieItemUI(
                 }
             }
 
-            // ── Content ───────────────────────────────────────────────────────
+            // ── Info ──────────────────────────────────────────────────────────
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -128,16 +129,13 @@ fun MovieItemUI(
                 }
 
                 Spacer(Modifier.height(8.dp))
-
                 WatchStatusBadge(status = status)
             }
 
-            // ── Delete button ─────────────────────────────────────────────────
+            // ── Delete ────────────────────────────────────────────────────────
             IconButton(
                 onClick = { showDeleteDialog = true },
-                modifier = Modifier
-                    .padding(top = 4.dp, end = 4.dp)
-                    .size(36.dp)
+                modifier = Modifier.padding(top = 4.dp, end = 4.dp).size(36.dp)
             ) {
                 Icon(
                     Icons.Default.Delete,

@@ -25,7 +25,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
+import coil.compose.AsyncImagePainter
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import org.delcom.watchlist.BuildConfig
@@ -52,6 +54,7 @@ fun ProfileScreen(
     val uiStateAuth by authViewModel.uiState.collectAsState()
     val context     = LocalContext.current
     val snackbar    = remember { SnackbarHostState() }
+    // Gunakan Long sebagai cache-buster, update setiap kali upload foto sukses
     var photoTs     by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var pendingUri  by remember { mutableStateOf<Uri?>(null) }
     var showPhotoDialog  by remember { mutableStateOf(false) }
@@ -72,11 +75,12 @@ fun ProfileScreen(
     LaunchedEffect(uiState.profilePhoto) {
         when (val s = uiState.profilePhoto) {
             is MovieActionUIState.Success -> {
-                // Update timestamp untuk force reload gambar
+                // Update timestamp untuk force reload — ini KUNCI agar Coil fetch ulang
                 photoTs = System.currentTimeMillis()
                 pendingUri = null
-                movieViewModel.getProfile(authToken)
+                // Reset state DULU sebelum getProfile agar tidak loop
                 movieViewModel.resetProfilePhotoState()
+                movieViewModel.getProfile(authToken)
             }
             is MovieActionUIState.Error -> {
                 snackbar.showSnackbar("error|${s.message}")
@@ -106,7 +110,7 @@ fun ProfileScreen(
             ) {
                 Spacer(Modifier.height(8.dp))
 
-                // Avatar — pakai ImageRequest dengan cache disabled + timestamp
+                // Avatar — key berubah setiap photoTs berubah, memaksa rekomposisi + request baru
                 Box(
                     contentAlignment = Alignment.BottomEnd,
                     modifier = Modifier
@@ -115,28 +119,76 @@ fun ProfileScreen(
                             picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                         }
                 ) {
-                    AsyncImage(
-                        model = if (profile?.id != null) {
-                            ImageRequest.Builder(context)
-                                .data("${BuildConfig.BASE_URL}images/users/${profile.id}?t=$photoTs")
-                                .memoryCachePolicy(CachePolicy.DISABLED)
-                                .diskCachePolicy(CachePolicy.DISABLED)
-                                .build()
-                        } else null,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(100.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentScale = ContentScale.Crop
-                    )
+                    val profileId = profile?.id
+                    // key() memastikan SubcomposeAsyncImage di-recreate saat photoTs berubah
+                    key(photoTs) {
+                        SubcomposeAsyncImage(
+                            model = if (profileId != null) {
+                                ImageRequest.Builder(context)
+                                    .data("${BuildConfig.BASE_URL}images/users/$profileId?t=$photoTs")
+                                    .memoryCachePolicy(CachePolicy.DISABLED)
+                                    .diskCachePolicy(CachePolicy.DISABLED)
+                                    .crossfade(true)
+                                    .build()
+                            } else null,
+                            contentDescription = "Foto Profil",
+                            modifier = Modifier
+                                .size(100.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentScale = ContentScale.Crop
+                        ) {
+                            when (painter.state) {
+                                is AsyncImagePainter.State.Loading -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(100.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(32.dp),
+                                            strokeWidth = 2.dp,
+                                            color = CinemaRed
+                                        )
+                                    }
+                                }
+                                is AsyncImagePainter.State.Error -> {
+                                    // Tampilkan placeholder jika gagal load
+                                    Box(
+                                        modifier = Modifier
+                                            .size(100.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Person,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(48.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                else -> SubcomposeAsyncImageContent()
+                            }
+                        }
+                    }
+
                     Surface(shape = CircleShape, color = CinemaRed, modifier = Modifier.size(28.dp)) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.CameraAlt, null, tint = Color.White, modifier = Modifier.size(14.dp))
                         }
                     }
+
+                    // Loading overlay saat upload sedang berjalan
                     if (uiState.profilePhoto is MovieActionUIState.Loading) {
-                        CircularProgressIndicator(modifier = Modifier.size(108.dp), strokeWidth = 3.dp, color = CinemaRed)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(108.dp),
+                            strokeWidth = 3.dp,
+                            color = CinemaRed
+                        )
                     }
                 }
 

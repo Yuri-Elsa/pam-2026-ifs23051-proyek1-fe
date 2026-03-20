@@ -84,12 +84,14 @@ class MovieViewModel @Inject constructor(
     fun resetMovieDetailState() {
         _uiState.update { it.copy(movie = MovieUIState.Loading, movieDelete = MovieActionUIState.Idle, movieChangeCover = MovieActionUIState.Idle) }
     }
-    fun resetMovieAddState() { _uiState.update { it.copy(movieAdd = MovieActionUIState.Idle) } }
-    fun resetMovieDeleteState() { _uiState.update { it.copy(movieDelete = MovieActionUIState.Idle) } }
+    fun resetMovieAddState()      { _uiState.update { it.copy(movieAdd = MovieActionUIState.Idle) } }
+    fun resetMovieDeleteState()   { _uiState.update { it.copy(movieDelete = MovieActionUIState.Idle) } }
+    // Tambahan: reset khusus untuk cover agar LaunchedEffect tidak re-trigger
+    fun resetMovieCoverState()    { _uiState.update { it.copy(movieChangeCover = MovieActionUIState.Idle) } }
     fun resetProfileUpdateState() { _uiState.update { it.copy(profileUpdate = MovieActionUIState.Idle) } }
     fun resetProfilePasswordState() { _uiState.update { it.copy(profilePassword = MovieActionUIState.Idle) } }
-    fun resetProfileAboutState() { _uiState.update { it.copy(profileAbout = MovieActionUIState.Idle) } }
-    fun resetProfilePhotoState() { _uiState.update { it.copy(profilePhoto = MovieActionUIState.Idle) } }
+    fun resetProfileAboutState()  { _uiState.update { it.copy(profileAbout = MovieActionUIState.Idle) } }
+    fun resetProfilePhotoState()  { _uiState.update { it.copy(profilePhoto = MovieActionUIState.Idle) } }
 
     // ── Home movies ───────────────────────────────────────────────────────────
 
