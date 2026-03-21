@@ -36,11 +36,9 @@ import org.delcom.watchlist.helper.RouteHelper
 import org.delcom.watchlist.helper.ToolsHelper
 import org.delcom.watchlist.network.data.ResponseMovieData
 import org.delcom.watchlist.ui.components.*
-import org.delcom.watchlist.ui.viewmodels.AuthUIState
 import org.delcom.watchlist.ui.viewmodels.AuthViewModel
-import org.delcom.watchlist.ui.viewmodels.MovieActionUIState
-import org.delcom.watchlist.ui.viewmodels.MovieUIState
 import org.delcom.watchlist.ui.viewmodels.MovieViewModel
+import org.delcom.watchlist.ui.viewmodels.UiState
 
 @Composable
 fun MovieDetailScreen(
@@ -48,76 +46,60 @@ fun MovieDetailScreen(
     snackbarHost: SnackbarHostState,
     authViewModel: AuthViewModel,
     movieViewModel: MovieViewModel,
-    movieId: String
+    movieId: String,
 ) {
-    val uiState     by movieViewModel.uiState.collectAsState()
-    val uiStateAuth by authViewModel.uiState.collectAsState()
+    val authToken = authViewModel.authToken
+    val detail by movieViewModel.detail.collectAsState()
 
-    val authToken = remember(uiStateAuth.auth) {
-        (uiStateAuth.auth as? AuthUIState.Success)?.data?.authToken
-    }
-
-    var isLoading        by remember { mutableStateOf(true) }
+    var coverTs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-    // coverTs berubah setiap upload sukses → paksa Coil reload
-    var coverTs          by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    val movie = (uiState.movie as? MovieUIState.Success)?.data
+    val movie = (detail.movie as? UiState.Success)?.data
+    val isLoading = detail.movie is UiState.Loading
 
     LaunchedEffect(Unit) {
-        if (uiStateAuth.auth !is AuthUIState.Success) {
+        if (authToken.isBlank()) {
             navController.navigate(RouteHelper.LOGIN) { popUpTo(0) { inclusive = true } }
             return@LaunchedEffect
         }
-        movieViewModel.resetMovieDetailState()
-        val token = authToken ?: run { navController.popBackStack(); return@LaunchedEffect }
-        movieViewModel.getMovieById(token, movieId)
+        movieViewModel.resetDetail()
+        movieViewModel.loadMovieById(authToken, movieId)
     }
 
-    LaunchedEffect(uiState.movie) {
-        when (uiState.movie) {
-            is MovieUIState.Success -> isLoading = false
-            is MovieUIState.Error   -> { isLoading = false; navController.popBackStack() }
-            is MovieUIState.Loading -> isLoading = true
-        }
+    LaunchedEffect(detail.movie) {
+        if (detail.movie is UiState.Error) navController.popBackStack()
     }
 
-    fun onDelete() {
-        val token = authToken ?: return
-        isLoading = true
-        movieViewModel.deleteMovie(token, movieId)
-    }
-
-    LaunchedEffect(uiState.movieDelete) {
-        when (val s = uiState.movieDelete) {
-            is MovieActionUIState.Success -> {
-                movieViewModel.resetMovieDeleteState()
-                navController.navigate(RouteHelper.MOVIES) { popUpTo(RouteHelper.MOVIES) { inclusive = true } }
+    // Handle delete
+    LaunchedEffect(detail.delete) {
+        when (val s = detail.delete) {
+            is UiState.Success -> {
+                movieViewModel.resetDelete()
+                navController.navigate(RouteHelper.MOVIES) {
+                    popUpTo(RouteHelper.MOVIES) { inclusive = true }
+                }
             }
-            is MovieActionUIState.Error -> {
+            is UiState.Error -> {
                 snackbarHost.showSnackbar("error|${s.message}")
-                isLoading = false
+                movieViewModel.resetDelete()
             }
-            is MovieActionUIState.Loading -> isLoading = true
             else -> {}
         }
     }
 
-    LaunchedEffect(uiState.movieChangeCover) {
-        when (val s = uiState.movieChangeCover) {
-            is MovieActionUIState.Success -> {
+    // Handle cover upload
+    LaunchedEffect(detail.cover) {
+        when (val s = detail.cover) {
+            is UiState.Success -> {
                 snackbarHost.showSnackbar("success|Poster berhasil diperbarui")
-                movieViewModel.resetMovieCoverState()
                 coverTs = System.currentTimeMillis()
-                authToken?.let { movieViewModel.getMovieById(it, movieId) }
-                isLoading = false
+                movieViewModel.resetCover()
+                movieViewModel.loadMovieById(authToken, movieId)
             }
-            is MovieActionUIState.Error -> {
+            is UiState.Error -> {
                 snackbarHost.showSnackbar("error|${s.message}")
-                movieViewModel.resetMovieCoverState()
-                isLoading = false
+                movieViewModel.resetCover()
             }
-            is MovieActionUIState.Loading -> isLoading = true
             else -> {}
         }
     }
@@ -130,27 +112,40 @@ fun MovieDetailScreen(
     }
 
     val menuItems = listOf(
-        TopBarMenuItem("Edit Film", Icons.Default.Edit, { navController.navigate(RouteHelper.movieEdit(movie.id)) }),
-        TopBarMenuItem("Hapus Film", Icons.Default.Delete, { showDeleteDialog = true }, isDestructive = true)
+        TopBarMenuItem(
+            text = "Edit Film",
+            icon = Icons.Default.Edit,
+            onClick = { navController.navigate(RouteHelper.movieEdit(movie.id)) }
+        ),
+        TopBarMenuItem(
+            text = "Hapus Film",
+            icon = Icons.Default.Delete,
+            onClick = { showDeleteDialog = true },
+            isDestructive = true
+        ),
     )
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        WatchListTopBar(title = movie.title, navController = navController, showBackButton = true, showMenu = true, menuItems = menuItems)
+        WatchListTopBar(
+            title = movie.title,
+            navController = navController,
+            showBackButton = true,
+            showMenu = true,
+            menuItems = menuItems,
+        )
 
         Box(modifier = Modifier.weight(1f)) {
             MovieDetailContent(
-                movie    = movie,
-                coverTs  = coverTs,
+                movie = movie,
+                coverTs = coverTs,
                 onChangeCover = { uri, context ->
-                    val token = authToken ?: return@MovieDetailContent
-                    isLoading = true
                     val part = ImageCompressHelper.uriToCompressedMultipart(context, uri, "file")
-                    movieViewModel.putMovieCover(token, movie.id, part)
-                }
+                    movieViewModel.uploadCover(authToken, movie.id, part)
+                },
             )
         }
 
-        BottomNavComponent(navController = navController)
+        BottomNavComponent(navController)
     }
 
     if (showDeleteDialog) {
@@ -160,24 +155,26 @@ fun MovieDetailScreen(
             text = { Text("Yakin ingin menghapus \"${movie.title}\" dari watchlist?") },
             confirmButton = {
                 Button(
-                    onClick = { showDeleteDialog = false; onDelete() },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    onClick = { showDeleteDialog = false; movieViewModel.deleteMovie(authToken, movieId) },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                 ) { Text("Hapus") }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) { Text("Batal") }
-            }
+            },
         )
     }
 }
+
+// ── Detail Content ────────────────────────────────────────────────────────────
 
 @Composable
 private fun MovieDetailContent(
     movie: ResponseMovieData,
     coverTs: Long,
-    onChangeCover: (Uri, android.content.Context) -> Unit
+    onChangeCover: (Uri, android.content.Context) -> Unit,
 ) {
-    var pendingUri       by remember { mutableStateOf<Uri?>(null) }
+    var pendingUri by remember { mutableStateOf<Uri?>(null) }
     var showCoverConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -185,15 +182,9 @@ private fun MovieDetailContent(
         uri?.let { pendingUri = it; showCoverConfirm = true }
     }
 
-    val status = movie.watchStatus
-
-    // FIX UTAMA: gunakan movie.cover (path relatif dari API) langsung
-    // contoh: "uploads/watchlists/948d07d9-....jpg"
-    // bukan di-generate dari movieId
     val coverUrl = remember(movie.cover, coverTs) {
         ToolsHelper.getMovieImageUrl(movie.cover, coverTs.toString())
     }
-    val hasCover = coverUrl != null
 
     val coverImageRequest = remember(coverUrl) {
         if (coverUrl == null) null
@@ -207,77 +198,73 @@ private fun MovieDetailContent(
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
 
-        // ── Hero poster ───────────────────────────────────────────────────────
+        // Hero poster
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(300.dp)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .clickable {
-                    imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }
+                .clickable { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         ) {
             when {
-                // 1. Preview lokal setelah user pilih dari galeri
-                pendingUri != null -> {
-                    SubcomposeAsyncImage(
-                        model = pendingUri,
-                        contentDescription = movie.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    ) {
-                        when (painter.state) {
-                            is AsyncImagePainter.State.Loading ->
-                                Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                            is AsyncImagePainter.State.Error -> LargePlaceholderPoster()
-                            else -> SubcomposeAsyncImageContent()
-                        }
+                pendingUri != null -> SubcomposeAsyncImage(
+                    model = pendingUri,
+                    contentDescription = movie.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                ) {
+                    when (painter.state) {
+                        is AsyncImagePainter.State.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                        is AsyncImagePainter.State.Error -> LargePlaceholderPoster()
+                        else -> SubcomposeAsyncImageContent()
                     }
                 }
 
-                // 2. Cover dari server — key(coverTs) paksa recreate saat timestamp berubah
-                hasCover -> key(coverTs) {
+                coverUrl != null -> key(coverTs) {
                     SubcomposeAsyncImage(
                         model = coverImageRequest,
                         contentDescription = movie.title,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
                     ) {
                         when (painter.state) {
-                            is AsyncImagePainter.State.Loading ->
-                                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                }
+                            is AsyncImagePainter.State.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
                             is AsyncImagePainter.State.Error -> LargePlaceholderPoster()
                             else -> SubcomposeAsyncImageContent()
                         }
                     }
                 }
 
-                // 3. Belum ada cover
                 else -> LargePlaceholderPoster()
             }
 
             Box(
-                modifier = Modifier.fillMaxWidth().height(100.dp).align(Alignment.BottomCenter)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(100.dp)
+                    .align(Alignment.BottomCenter)
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f))))
             )
             Box(
-                modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp).size(36.dp)
-                    .clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
-                contentAlignment = Alignment.Center
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(12.dp)
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Default.CameraAlt, contentDescription = "Ganti Poster", tint = Color.White, modifier = Modifier.size(18.dp))
             }
         }
 
-        // ── Action bar pending cover ──────────────────────────────────────────
+        // Action bar pending cover
         if (pendingUri != null) {
             Surface(color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text("Poster baru dipilih", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -288,10 +275,10 @@ private fun MovieDetailContent(
             }
         }
 
-        // ── Info section ──────────────────────────────────────────────────────
+        // Info
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(movie.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
@@ -303,7 +290,7 @@ private fun MovieDetailContent(
                 }
             }
 
-            WatchStatusBadge(status = status)
+            WatchStatusBadge(status = movie.watchStatus)
 
             if (movie.cleanDescription.isNotBlank()) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
@@ -336,7 +323,7 @@ private fun MovieDetailContent(
             },
             dismissButton = {
                 TextButton(onClick = { showCoverConfirm = false; pendingUri = null }) { Text("Batal") }
-            }
+            },
         )
     }
 }
@@ -345,7 +332,7 @@ private fun MovieDetailContent(
 private fun LargePlaceholderPoster() {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Default.Movie, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(64.dp))
+            Icon(Icons.Default.Movie, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(64.dp))
             Text("Tap untuk menambahkan poster", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), textAlign = TextAlign.Center)
         }
     }

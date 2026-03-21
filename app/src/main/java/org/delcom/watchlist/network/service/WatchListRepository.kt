@@ -1,5 +1,6 @@
 package org.delcom.watchlist.network.service
 
+import com.google.gson.Gson
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -7,11 +8,13 @@ import org.delcom.watchlist.BuildConfig
 import org.delcom.watchlist.network.data.*
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.*
-import java.security.cert.X509Certificate
 
-// ── Repository Interface ──────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// Repository Interface
+// ═════════════════════════════════════════════════════════════════════════════
 
 interface IWatchListRepository {
     // Auth
@@ -35,7 +38,7 @@ interface IWatchListRepository {
         page: Int = 1,
         perPage: Int = 10,
         isDone: Boolean? = null,
-        urgency: String? = null
+        urgency: String? = null,
     ): ResponseMessage<ResponseMoviesPaginated?>
     suspend fun postMovie(authToken: String, request: RequestMovie): ResponseMessage<ResponseMovieAdd?>
     suspend fun getMovieById(authToken: String, movieId: String): ResponseMessage<ResponseMovie?>
@@ -44,81 +47,138 @@ interface IWatchListRepository {
     suspend fun deleteMovie(authToken: String, movieId: String): ResponseMessage<String?>
 }
 
-// ── Repository Implementation ─────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// Repository Implementation
+// ═════════════════════════════════════════════════════════════════════════════
 
-class WatchListRepository(private val apiService: WatchListApiService) : IWatchListRepository {
+class WatchListRepository(
+    private val apiService: WatchListApiService,
+) : IWatchListRepository {
 
+    /**
+     * Membungkus setiap API call dengan error handling terpusat.
+     * HTTP error body di-parse ulang untuk mendapat pesan dari server.
+     */
     private suspend fun <T> safe(call: suspend () -> ResponseMessage<T>): ResponseMessage<T> {
         return try {
             call()
         } catch (e: retrofit2.HttpException) {
-            val body = try { e.response()?.errorBody()?.string() } catch (_: Exception) { null }
-            val msg = try {
-                com.google.gson.Gson().fromJson(body, ResponseMessage::class.java)?.message
+            val body = runCatching { e.response()?.errorBody()?.string() }.getOrNull()
+            val msg = runCatching {
+                Gson().fromJson(body, ResponseMessage::class.java)?.message
                     ?: "Server error (${e.code()})"
-            } catch (_: Exception) { "Server error (${e.code()})" }
-            ResponseMessage<T>(status = "error", message = msg, data = null)
+            }.getOrDefault("Server error (${e.code()})")
+            ResponseMessage(status = "error", message = msg, data = null)
         } catch (e: Exception) {
-            ResponseMessage<T>(status = "error", message = e.message ?: "Unknown error", data = null)
+            ResponseMessage(status = "error", message = e.message ?: "Unknown error", data = null)
         }
     }
 
-    override suspend fun postRegister(request: RequestAuthRegister) = safe { apiService.postRegister(request) }
-    override suspend fun postLogin(request: RequestAuthLogin) = safe { apiService.postLogin(request) }
-    override suspend fun postLogout(request: RequestAuthLogout) = safe { apiService.postLogout(request) }
-    override suspend fun postRefreshToken(request: RequestAuthRefreshToken) = safe { apiService.postRefreshToken(request) }
+    // Prefix "Bearer " ditambahkan di sini agar API Service tetap bersih
+    private fun String.bearer() = "Bearer $this"
 
-    override suspend fun getUserMe(authToken: String) = safe { apiService.getUserMe("Bearer $authToken") }
-    override suspend fun putUserMe(authToken: String, request: RequestUserChange) = safe { apiService.putUserMe("Bearer $authToken", request) }
-    override suspend fun putUserMePassword(authToken: String, request: RequestUserChangePassword) = safe { apiService.putUserMePassword("Bearer $authToken", request) }
-    override suspend fun putUserMePhoto(authToken: String, file: MultipartBody.Part) = safe { apiService.putUserMePhoto("Bearer $authToken", file) }
-    override suspend fun putUserMeAbout(authToken: String, request: RequestUserAbout) = safe { apiService.putUserMeAbout("Bearer $authToken", request) }
+    // ── Auth ──────────────────────────────────────────────────────────────────
 
-    override suspend fun getMovieStats(authToken: String) = safe { apiService.getMovieStats("Bearer $authToken") }
-    override suspend fun getMovies(authToken: String, search: String?, page: Int, perPage: Int, isDone: Boolean?, urgency: String?) =
-        safe { apiService.getMovies("Bearer $authToken", search, page, perPage, isDone, urgency) }
-    override suspend fun postMovie(authToken: String, request: RequestMovie) = safe { apiService.postMovie("Bearer $authToken", request) }
-    override suspend fun getMovieById(authToken: String, movieId: String) = safe { apiService.getMovieById("Bearer $authToken", movieId) }
-    override suspend fun putMovie(authToken: String, movieId: String, request: RequestMovie) = safe { apiService.putMovie("Bearer $authToken", movieId, request) }
-    override suspend fun putMovieCover(authToken: String, movieId: String, file: MultipartBody.Part) = safe { apiService.putMovieCover("Bearer $authToken", movieId, file) }
-    override suspend fun deleteMovie(authToken: String, movieId: String) = safe { apiService.deleteMovie("Bearer $authToken", movieId) }
+    override suspend fun postRegister(request: RequestAuthRegister) =
+        safe { apiService.postRegister(request) }
+
+    override suspend fun postLogin(request: RequestAuthLogin) =
+        safe { apiService.postLogin(request) }
+
+    override suspend fun postLogout(request: RequestAuthLogout) =
+        safe { apiService.postLogout(request) }
+
+    override suspend fun postRefreshToken(request: RequestAuthRefreshToken) =
+        safe { apiService.postRefreshToken(request) }
+
+    // ── User ──────────────────────────────────────────────────────────────────
+
+    override suspend fun getUserMe(authToken: String) =
+        safe { apiService.getUserMe(authToken.bearer()) }
+
+    override suspend fun putUserMe(authToken: String, request: RequestUserChange) =
+        safe { apiService.putUserMe(authToken.bearer(), request) }
+
+    override suspend fun putUserMePassword(authToken: String, request: RequestUserChangePassword) =
+        safe { apiService.putUserMePassword(authToken.bearer(), request) }
+
+    override suspend fun putUserMePhoto(authToken: String, file: MultipartBody.Part) =
+        safe { apiService.putUserMePhoto(authToken.bearer(), file) }
+
+    override suspend fun putUserMeAbout(authToken: String, request: RequestUserAbout) =
+        safe { apiService.putUserMeAbout(authToken.bearer(), request) }
+
+    // ── Movies ────────────────────────────────────────────────────────────────
+
+    override suspend fun getMovieStats(authToken: String) =
+        safe { apiService.getMovieStats(authToken.bearer()) }
+
+    override suspend fun getMovies(
+        authToken: String, search: String?, page: Int, perPage: Int,
+        isDone: Boolean?, urgency: String?,
+    ) = safe { apiService.getMovies(authToken.bearer(), search, page, perPage, isDone, urgency) }
+
+    override suspend fun postMovie(authToken: String, request: RequestMovie) =
+        safe { apiService.postMovie(authToken.bearer(), request) }
+
+    override suspend fun getMovieById(authToken: String, movieId: String) =
+        safe { apiService.getMovieById(authToken.bearer(), movieId) }
+
+    override suspend fun putMovie(authToken: String, movieId: String, request: RequestMovie) =
+        safe { apiService.putMovie(authToken.bearer(), movieId, request) }
+
+    override suspend fun putMovieCover(authToken: String, movieId: String, file: MultipartBody.Part) =
+        safe { apiService.putMovieCover(authToken.bearer(), movieId, file) }
+
+    override suspend fun deleteMovie(authToken: String, movieId: String) =
+        safe { apiService.deleteMovie(authToken.bearer(), movieId) }
 }
 
-// ── App Container ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// App Container
+// ═════════════════════════════════════════════════════════════════════════════
 
 interface IWatchListAppContainer {
     val repository: IWatchListRepository
 }
 
 class WatchListAppContainer : IWatchListAppContainer {
+
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY
         else HttpLoggingInterceptor.Level.NONE
     }
 
-    private val okHttpClient = OkHttpClient.Builder().apply {
-        addInterceptor(loggingInterceptor)
-        connectTimeout(2, TimeUnit.MINUTES)
-        readTimeout(2, TimeUnit.MINUTES)
-        writeTimeout(2, TimeUnit.MINUTES)
-
-        // SSL bypass untuk development (self-signed cert)
+    /**
+     * OkHttp dengan SSL bypass untuk server self-signed (development only).
+     * Ganti dengan konfigurasi SSL yang proper untuk production.
+     */
+    private val okHttpClient: OkHttpClient by lazy {
         val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
-            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) = Unit
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) = Unit
             override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
         })
-        val sslContext = SSLContext.getInstance("SSL")
-        sslContext.init(null, trustAllCerts, java.security.SecureRandom())
-        sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
-        hostnameVerifier { _, _ -> true }
-    }.build()
+        val sslContext = SSLContext.getInstance("SSL").apply {
+            init(null, trustAllCerts, java.security.SecureRandom())
+        }
+        OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .connectTimeout(2, TimeUnit.MINUTES)
+            .readTimeout(2, TimeUnit.MINUTES)
+            .writeTimeout(2, TimeUnit.MINUTES)
+            .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+            .hostnameVerifier { _, _ -> true }
+            .build()
+    }
 
-    private val retrofit = Retrofit.Builder()
-        .baseUrl(BuildConfig.BASE_URL)
-        .addConverterFactory(GsonConverterFactory.create())
-        .client(okHttpClient)
-        .build()
+    private val retrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl(BuildConfig.BASE_URL)
+            .addConverterFactory(GsonConverterFactory.create())
+            .client(okHttpClient)
+            .build()
+    }
 
     private val apiService: WatchListApiService by lazy {
         retrofit.create(WatchListApiService::class.java)

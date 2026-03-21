@@ -3,16 +3,8 @@ package org.delcom.watchlist.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
@@ -31,32 +23,34 @@ import org.delcom.watchlist.ui.screens.movies.MovieAddScreen
 import org.delcom.watchlist.ui.screens.movies.MovieDetailScreen
 import org.delcom.watchlist.ui.screens.movies.MovieEditScreen
 import org.delcom.watchlist.ui.screens.movies.MovieListScreen
-import org.delcom.watchlist.ui.viewmodels.AuthUIState
 import org.delcom.watchlist.ui.viewmodels.AuthViewModel
 import org.delcom.watchlist.ui.viewmodels.MovieViewModel
+import org.delcom.watchlist.ui.viewmodels.ProfileViewModel
+import org.delcom.watchlist.ui.viewmodels.UiState
 
 @Composable
 fun WatchListApp(
     navController: NavHostController = rememberNavController(),
+    authViewModel: AuthViewModel,
     movieViewModel: MovieViewModel,
-    authViewModel: AuthViewModel
+    profileViewModel: ProfileViewModel,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
-    val uiStateAuth by authViewModel.uiState.collectAsState()
+    val authState by authViewModel.uiState.collectAsState()
 
-    val authState = uiStateAuth.auth
-    val authToken = (authState as? AuthUIState.Success)?.data?.authToken ?: ""
-
-    LaunchedEffect(authState) {
-        when (authState) {
-            is AuthUIState.Error -> navController.navigate(RouteHelper.LOGIN) {
-                popUpTo(0) { inclusive = true }; launchSingleTop = true
+    // Redirect berdasarkan session state
+    LaunchedEffect(authState.session) {
+        when (authState.session) {
+            is UiState.Error -> navController.navigate(RouteHelper.LOGIN) {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
             }
-            is AuthUIState.Success -> {
+            is UiState.Success -> {
                 val route = navController.currentDestination?.route
                 if (route == null || route == RouteHelper.LOGIN || route == RouteHelper.REGISTER) {
                     navController.navigate(RouteHelper.HOME) {
-                        popUpTo(0) { inclusive = true }; launchSingleTop = true
+                        popUpTo(0) { inclusive = true }
+                        launchSingleTop = true
                     }
                 }
             }
@@ -64,9 +58,12 @@ fun WatchListApp(
         }
     }
 
-    if (authState is AuthUIState.Loading) {
+    // Loading splash saat mengecek token
+    if (authState.session is UiState.Loading) {
         Box(
-            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
             contentAlignment = Alignment.Center
         ) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
         return
@@ -82,7 +79,9 @@ fun WatchListApp(
         NavHost(
             navController = navController,
             startDestination = RouteHelper.HOME,
-            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
         ) {
             composable(RouteHelper.LOGIN) {
                 LoginScreen(navController, snackbarHostState, authViewModel)
@@ -91,49 +90,57 @@ fun WatchListApp(
                 RegisterScreen(navController, snackbarHostState, authViewModel)
             }
             composable(RouteHelper.HOME) {
-                HomeScreen(navController, authToken, movieViewModel)
+                HomeScreen(
+                    navController  = navController,
+                    authViewModel  = authViewModel,
+                    movieViewModel = movieViewModel,
+                )
             }
             composable(RouteHelper.PROFILE) {
-                ProfileScreen(navController, authToken, movieViewModel, authViewModel)
+                ProfileScreen(
+                    navController    = navController,
+                    authViewModel    = authViewModel,
+                    profileViewModel = profileViewModel,
+                )
             }
             composable(RouteHelper.MOVIES) {
                 MovieListScreen(
                     navController  = navController,
-                    authToken      = authToken,
+                    authViewModel  = authViewModel,
                     movieViewModel = movieViewModel,
                 )
             }
             composable(RouteHelper.MOVIE_ADD) {
                 MovieAddScreen(
-                    authToken      = authToken,
+                    authViewModel  = authViewModel,
                     movieViewModel = movieViewModel,
                     navController  = navController,
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { navController.popBackStack() },
                 )
             }
             composable(
                 route     = RouteHelper.MOVIE_DETAIL,
-                arguments = listOf(navArgument("movieId") { type = NavType.StringType })
-            ) { back ->
-                val movieId = back.arguments?.getString("movieId") ?: ""
+                arguments = listOf(navArgument("movieId") { type = NavType.StringType }),
+            ) { backStack ->
+                val movieId = backStack.arguments?.getString("movieId") ?: ""
                 MovieDetailScreen(
                     navController  = navController,
                     snackbarHost   = snackbarHostState,
                     authViewModel  = authViewModel,
                     movieViewModel = movieViewModel,
-                    movieId        = movieId
+                    movieId        = movieId,
                 )
             }
             composable(
                 route     = RouteHelper.MOVIE_EDIT,
-                arguments = listOf(navArgument("movieId") { type = NavType.StringType })
-            ) { back ->
-                val movieId = back.arguments?.getString("movieId") ?: ""
+                arguments = listOf(navArgument("movieId") { type = NavType.StringType }),
+            ) { backStack ->
+                val movieId = backStack.arguments?.getString("movieId") ?: ""
                 MovieEditScreen(
-                    authToken      = authToken,
+                    authViewModel  = authViewModel,
                     movieId        = movieId,
                     movieViewModel = movieViewModel,
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { navController.popBackStack() },
                 )
             }
         }

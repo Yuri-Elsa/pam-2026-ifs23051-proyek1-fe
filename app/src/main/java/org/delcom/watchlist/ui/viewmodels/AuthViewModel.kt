@@ -12,97 +12,92 @@ import org.delcom.watchlist.network.service.IWatchListRepository
 import org.delcom.watchlist.prefs.AuthTokenPref
 import javax.inject.Inject
 
-// ── Sealed interfaces ─────────────────────────────────────────────────────────
-
-sealed interface AuthUIState {
-    data class Success(val data: ResponseAuthLogin) : AuthUIState
-    data class Error(val message: String) : AuthUIState
-    object Loading : AuthUIState
-}
-
-sealed interface AuthActionUIState {
-    data class Success(val message: String) : AuthActionUIState
-    data class Error(val message: String) : AuthActionUIState
-    object Loading : AuthActionUIState
-    object Idle : AuthActionUIState
-}
-
-sealed interface AuthLogoutUIState {
-    data class Success(val message: String) : AuthLogoutUIState
-    data class Error(val message: String) : AuthLogoutUIState
-    object Loading : AuthLogoutUIState
-    object Idle : AuthLogoutUIState
-}
-
-data class UIStateAuth(
-    val auth: AuthUIState = AuthUIState.Loading,
-    val authRegister: AuthActionUIState = AuthActionUIState.Idle,
-    val authLogout: AuthLogoutUIState = AuthLogoutUIState.Idle,
+/**
+ * State untuk AuthViewModel — lebih ramping dari sebelumnya.
+ * Gunakan [UiState] generik daripada sealed interface per-action.
+ */
+data class AuthUiState(
+    val session: UiState<ResponseAuthLogin> = UiState.Loading,
+    val register: ActionState = UiState.Idle,
+    val logout: ActionState = UiState.Idle,
 )
-
-// ── ViewModel ─────────────────────────────────────────────────────────────────
 
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val repository: IWatchListRepository,
-    private val authTokenPref: AuthTokenPref
+    private val authTokenPref: AuthTokenPref,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(UIStateAuth())
+    private val _uiState = MutableStateFlow(AuthUiState())
     val uiState = _uiState.asStateFlow()
 
-    fun resetRegisterState() {
-        _uiState.update { it.copy(authRegister = AuthActionUIState.Idle) }
-    }
+    /** Token dari state aktif, atau string kosong jika belum login */
+    val authToken: String
+        get() = (_uiState.value.session as? UiState.Success)?.data?.authToken ?: ""
+
+    // ── Session ───────────────────────────────────────────────────────────────
 
     fun loadTokenFromPreferences() {
         viewModelScope.launch {
-            _uiState.update { it.copy(auth = AuthUIState.Loading) }
+            _uiState.update { it.copy(session = UiState.Loading) }
             val token = authTokenPref.getAuthToken()
             val refresh = authTokenPref.getRefreshToken()
-            val state = if (token.isNullOrEmpty() || refresh.isNullOrEmpty()) {
-                AuthUIState.Error("Token tidak tersedia")
-            } else {
-                AuthUIState.Success(ResponseAuthLogin(authToken = token, refreshToken = refresh))
-            }
-            _uiState.update { it.copy(auth = state) }
+            val state: UiState<ResponseAuthLogin> =
+                if (!token.isNullOrEmpty() && !refresh.isNullOrEmpty())
+                    UiState.Success(ResponseAuthLogin(token, refresh))
+                else
+                    UiState.Error("Belum login")
+            _uiState.update { it.copy(session = state) }
         }
     }
+
+    // ── Register ──────────────────────────────────────────────────────────────
 
     fun register(name: String, username: String, password: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(authRegister = AuthActionUIState.Loading) }
+            _uiState.update { it.copy(register = UiState.Loading) }
             val result = repository.postRegister(RequestAuthRegister(name, username, password))
-            val state = if (result.status == "success" && result.data != null)
-                AuthActionUIState.Success(result.data.userId)
-            else
-                AuthActionUIState.Error(result.message)
-            _uiState.update { it.copy(authRegister = state) }
+            val state: ActionState =
+                if (result.status == "success" && result.data != null)
+                    UiState.Success(result.data.userId)
+                else
+                    UiState.Error(result.message)
+            _uiState.update { it.copy(register = state) }
         }
     }
+
+    fun resetRegisterState() {
+        _uiState.update { it.copy(register = UiState.Idle) }
+    }
+
+    // ── Login ─────────────────────────────────────────────────────────────────
 
     fun login(username: String, password: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(auth = AuthUIState.Loading) }
+            _uiState.update { it.copy(session = UiState.Loading) }
             val result = repository.postLogin(RequestAuthLogin(username, password))
-            val state = if (result.status == "success" && result.data != null) {
-                authTokenPref.saveAuthToken(result.data.authToken)
-                authTokenPref.saveRefreshToken(result.data.refreshToken)
-                AuthUIState.Success(result.data)
-            } else {
-                AuthUIState.Error(result.message)
-            }
-            _uiState.update { it.copy(auth = state) }
+            val state: UiState<ResponseAuthLogin> =
+                if (result.status == "success" && result.data != null) {
+                    authTokenPref.saveAuthToken(result.data.authToken)
+                    authTokenPref.saveRefreshToken(result.data.refreshToken)
+                    UiState.Success(result.data)
+                } else {
+                    UiState.Error(result.message)
+                }
+            _uiState.update { it.copy(session = state) }
         }
     }
 
+    // ── Logout ────────────────────────────────────────────────────────────────
+
     fun logout(authToken: String) {
         viewModelScope.launch {
+            // Hapus token lokal dulu agar UI langsung merespons
             authTokenPref.clearAuthToken()
             authTokenPref.clearRefreshToken()
-            _uiState.update { it.copy(authLogout = AuthLogoutUIState.Loading) }
+            _uiState.update { it.copy(logout = UiState.Loading) }
             repository.postLogout(RequestAuthLogout(authToken))
-            _uiState.update { it.copy(authLogout = AuthLogoutUIState.Success("Logged out")) }
+            _uiState.update { it.copy(logout = UiState.Success("Logged out")) }
         }
     }
 }

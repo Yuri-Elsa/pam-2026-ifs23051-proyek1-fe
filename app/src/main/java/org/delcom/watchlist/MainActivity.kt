@@ -10,12 +10,14 @@ import org.delcom.watchlist.ui.WatchListApp
 import org.delcom.watchlist.ui.theme.WatchListTheme
 import org.delcom.watchlist.ui.viewmodels.AuthViewModel
 import org.delcom.watchlist.ui.viewmodels.MovieViewModel
+import org.delcom.watchlist.ui.viewmodels.ProfileViewModel
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+    private val authViewModel: AuthViewModel by viewModels()
     private val movieViewModel: MovieViewModel by viewModels()
-    private val authViewModel: AuthViewModel   by viewModels()
+    private val profileViewModel: ProfileViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,8 +26,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             WatchListTheme {
                 WatchListApp(
-                    movieViewModel = movieViewModel,
-                    authViewModel  = authViewModel
+                    authViewModel    = authViewModel,
+                    movieViewModel   = movieViewModel,
+                    profileViewModel = profileViewModel,
                 )
             }
         }

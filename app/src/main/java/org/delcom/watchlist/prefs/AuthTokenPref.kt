@@ -4,18 +4,36 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 
+/**
+ * Wrapper SharedPreferences untuk menyimpan token autentikasi secara lokal.
+ *
+ * Disimpan di file `watchlist_auth_prefs` dengan mode privat.
+ */
 class AuthTokenPref(context: Context) {
-    private val sharedPreferences: SharedPreferences =
-        context.getSharedPreferences("watchlist_auth_prefs", Context.MODE_PRIVATE)
 
-    private val AUTH_TOKEN_KEY    = "AUTH_TOKEN_KEY"
-    private val REFRESH_TOKEN_KEY = "REFRESH_TOKEN_KEY"
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
 
-    fun saveAuthToken(token: String)    { sharedPreferences.edit { putString(AUTH_TOKEN_KEY, token) } }
-    fun getAuthToken(): String?         = sharedPreferences.getString(AUTH_TOKEN_KEY, null)
-    fun clearAuthToken()                { sharedPreferences.edit { remove(AUTH_TOKEN_KEY) } }
+    // ── Auth Token ────────────────────────────────────────────────────────────
 
-    fun saveRefreshToken(token: String) { sharedPreferences.edit { putString(REFRESH_TOKEN_KEY, token) } }
-    fun getRefreshToken(): String?      = sharedPreferences.getString(REFRESH_TOKEN_KEY, null)
-    fun clearRefreshToken()             { sharedPreferences.edit { remove(REFRESH_TOKEN_KEY) } }
+    fun saveAuthToken(token: String) = prefs.edit { putString(KEY_AUTH_TOKEN, token) }
+    fun getAuthToken(): String?      = prefs.getString(KEY_AUTH_TOKEN, null)
+    fun clearAuthToken()             = prefs.edit { remove(KEY_AUTH_TOKEN) }
+
+    // ── Refresh Token ─────────────────────────────────────────────────────────
+
+    fun saveRefreshToken(token: String) = prefs.edit { putString(KEY_REFRESH_TOKEN, token) }
+    fun getRefreshToken(): String?      = prefs.getString(KEY_REFRESH_TOKEN, null)
+    fun clearRefreshToken()             = prefs.edit { remove(KEY_REFRESH_TOKEN) }
+
+    // ── Clear All ─────────────────────────────────────────────────────────────
+
+    /** Menghapus semua token sekaligus (logout). */
+    fun clearAll() = prefs.edit { clear() }
+
+    companion object {
+        private const val PREF_FILE        = "watchlist_auth_prefs"
+        private const val KEY_AUTH_TOKEN   = "AUTH_TOKEN_KEY"
+        private const val KEY_REFRESH_TOKEN = "REFRESH_TOKEN_KEY"
+    }
 }

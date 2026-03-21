@@ -12,234 +12,247 @@ import org.delcom.watchlist.network.data.*
 import org.delcom.watchlist.network.service.IWatchListRepository
 import javax.inject.Inject
 
-// ── Sealed interfaces ─────────────────────────────────────────────────────────
-
-sealed interface ProfileUIState {
-    data class Success(val data: ResponseUserData) : ProfileUIState
-    data class Error(val message: String) : ProfileUIState
-    object Loading : ProfileUIState
-}
-
-sealed interface StatsUIState {
-    data class Success(val data: ResponseStatsData) : StatsUIState
-    data class Error(val message: String) : StatsUIState
-    object Loading : StatsUIState
-}
-
-sealed interface MoviesUIState {
-    data class Success(val data: List<ResponseMovieData>, val pagination: ResponsePagination) : MoviesUIState
-    data class Error(val message: String) : MoviesUIState
-    object Loading : MoviesUIState
-}
-
-sealed interface MovieUIState {
-    data class Success(val data: ResponseMovieData) : MovieUIState
-    data class Error(val message: String) : MovieUIState
-    object Loading : MovieUIState
-}
-
-sealed interface MovieActionUIState {
-    data class Success(val message: String) : MovieActionUIState
-    data class Error(val message: String) : MovieActionUIState
-    object Loading : MovieActionUIState
-    object Idle : MovieActionUIState
-}
-
-sealed interface HomeMoviesUIState {
-    data class Success(val data: List<ResponseMovieData>, val pagination: ResponsePagination) : HomeMoviesUIState
-    data class Error(val message: String) : HomeMoviesUIState
-    object Loading : HomeMoviesUIState
-}
-
-data class UIStateMovie(
-    val profile: ProfileUIState = ProfileUIState.Loading,
-    val stats: StatsUIState = StatsUIState.Loading,
-    val movies: MoviesUIState = MoviesUIState.Loading,
-    val movie: MovieUIState = MovieUIState.Loading,
-    val movieAdd: MovieActionUIState = MovieActionUIState.Idle,
-    val movieChange: MovieActionUIState = MovieActionUIState.Idle,
-    val movieDelete: MovieActionUIState = MovieActionUIState.Idle,
-    val movieChangeCover: MovieActionUIState = MovieActionUIState.Idle,
-    val profileUpdate: MovieActionUIState = MovieActionUIState.Idle,
-    val profilePassword: MovieActionUIState = MovieActionUIState.Idle,
-    val profileAbout: MovieActionUIState = MovieActionUIState.Idle,
-    val profilePhoto: MovieActionUIState = MovieActionUIState.Idle,
+/**
+ * State untuk daftar film dengan pagination.
+ */
+data class MovieListUiState(
+    val items: List<ResponseMovieData> = emptyList(),
+    val pagination: ResponsePagination? = null,
+    val isLoading: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val error: String? = null,
 )
 
-// ── ViewModel ─────────────────────────────────────────────────────────────────
+/**
+ * State untuk satu film detail.
+ */
+data class MovieDetailUiState(
+    val movie: UiState<ResponseMovieData> = UiState.Idle,
+    val cover: ActionState = UiState.Idle,
+    val edit: ActionState = UiState.Idle,
+    val delete: ActionState = UiState.Idle,
+)
 
+/**
+ * ViewModel khusus film — stats, list, detail, CRUD.
+ * Profil user dipindah ke [ProfileViewModel].
+ */
 @HiltViewModel
 class MovieViewModel @Inject constructor(
     private val repository: IWatchListRepository,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(UIStateMovie())
-    val uiState = _uiState.asStateFlow()
-
-    private val _homeMoviesState = MutableStateFlow<HomeMoviesUIState>(HomeMoviesUIState.Loading)
-    val homeMoviesState = _homeMoviesState.asStateFlow()
-
-    // ── Reset helpers ─────────────────────────────────────────────────────────
-
-    fun resetMovieDetailState() {
-        _uiState.update { it.copy(movie = MovieUIState.Loading, movieDelete = MovieActionUIState.Idle, movieChangeCover = MovieActionUIState.Idle) }
-    }
-    fun resetMovieAddState()      { _uiState.update { it.copy(movieAdd = MovieActionUIState.Idle) } }
-    fun resetMovieDeleteState()   { _uiState.update { it.copy(movieDelete = MovieActionUIState.Idle) } }
-    // Tambahan: reset khusus untuk cover agar LaunchedEffect tidak re-trigger
-    fun resetMovieCoverState()    { _uiState.update { it.copy(movieChangeCover = MovieActionUIState.Idle) } }
-    fun resetProfileUpdateState() { _uiState.update { it.copy(profileUpdate = MovieActionUIState.Idle) } }
-    fun resetProfilePasswordState() { _uiState.update { it.copy(profilePassword = MovieActionUIState.Idle) } }
-    fun resetProfileAboutState()  { _uiState.update { it.copy(profileAbout = MovieActionUIState.Idle) } }
-    fun resetProfilePhotoState()  { _uiState.update { it.copy(profilePhoto = MovieActionUIState.Idle) } }
-
-    // ── Home movies ───────────────────────────────────────────────────────────
-
-    fun getHomeMovies(authToken: String, page: Int = 1, perPage: Int = 10) {
-        viewModelScope.launch {
-            _homeMoviesState.value = HomeMoviesUIState.Loading
-            val result = repository.getMovies(authToken, null, page, perPage, null, null)
-            _homeMoviesState.value = if (result.status == "success" && result.data != null) {
-                val pagination = result.data.pagination ?: ResponsePagination(page, perPage, result.data.watchlists.size.toLong(), 1, false, false)
-                HomeMoviesUIState.Success(result.data.watchlists, pagination)
-            } else {
-                HomeMoviesUIState.Error(result.message)
-            }
-        }
-    }
-
-    // ── Profile ───────────────────────────────────────────────────────────────
-
-    fun getProfile(authToken: String) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(profile = ProfileUIState.Loading) }
-            val result = repository.getUserMe(authToken)
-            val state = if (result.status == "success" && result.data != null)
-                ProfileUIState.Success(result.data.user)
-            else ProfileUIState.Error(result.message)
-            _uiState.update { it.copy(profile = state) }
-        }
-    }
-
     // ── Stats ─────────────────────────────────────────────────────────────────
+    private val _stats = MutableStateFlow<UiState<ResponseStatsData>>(UiState.Idle)
+    val stats = _stats.asStateFlow()
 
-    fun getStats(authToken: String) {
+    // ── Home list (unfiltered, infinite scroll) ───────────────────────────────
+    private val _homeList = MutableStateFlow(MovieListUiState())
+    val homeList = _homeList.asStateFlow()
+
+    // ── Watchlist (dengan filter + infinite scroll) ───────────────────────────
+    private val _watchList = MutableStateFlow(MovieListUiState())
+    val watchList = _watchList.asStateFlow()
+
+    // ── Detail + aksi per-film ────────────────────────────────────────────────
+    private val _detail = MutableStateFlow(MovieDetailUiState())
+    val detail = _detail.asStateFlow()
+
+    // ── Add film ──────────────────────────────────────────────────────────────
+    private val _addState = MutableStateFlow<ActionState>(UiState.Idle)
+    val addState = _addState.asStateFlow()
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // Stats
+    // ═════════════════════════════════════════════════════════════════════════
+
+    fun loadStats(authToken: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(stats = StatsUIState.Loading) }
+            _stats.value = UiState.Loading
             val result = repository.getMovieStats(authToken)
-            val state = if (result.status == "success" && result.data != null)
-                StatsUIState.Success(result.data.stats)
-            else StatsUIState.Error(result.message)
-            _uiState.update { it.copy(stats = state) }
+            _stats.value =
+                if (result.status == "success" && result.data != null)
+                    UiState.Success(result.data.stats)
+                else UiState.Error(result.message)
         }
     }
 
-    // ── Movies CRUD ───────────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+    // Home list  (halaman pertama = reset, halaman berikut = append)
+    // ═════════════════════════════════════════════════════════════════════════
 
-    fun getAllMovies(authToken: String, search: String? = null, page: Int = 1, perPage: Int = 10, isDone: Boolean? = null, urgency: String? = null) {
+    fun loadHomeMovies(authToken: String, page: Int = 1, perPage: Int = 10) {
         viewModelScope.launch {
-            _uiState.update { it.copy(movies = MoviesUIState.Loading) }
-            val result = repository.getMovies(authToken, search, page, perPage, isDone, urgency)
-            val state = if (result.status == "success" && result.data != null) {
-                val pagination = result.data.pagination ?: ResponsePagination(page, perPage, result.data.watchlists.size.toLong(), 1, false, false)
-                MoviesUIState.Success(result.data.watchlists, pagination)
+            val isFirstPage = page == 1
+            if (isFirstPage) {
+                _homeList.update { it.copy(isLoading = true, error = null) }
             } else {
-                MoviesUIState.Error(result.message)
+                _homeList.update { it.copy(isLoadingMore = true) }
             }
-            _uiState.update { it.copy(movies = state) }
+
+            val result = repository.getMovies(authToken, null, page, perPage, null, null)
+
+            if (result.status == "success" && result.data != null) {
+                val pagination = result.data.pagination
+                    ?: ResponsePagination(page, perPage, result.data.watchlists.size.toLong(), 1, false, false)
+                _homeList.update { state ->
+                    val merged = if (isFirstPage) result.data.watchlists
+                    else (state.items + result.data.watchlists).distinctBy { it.id }
+                    state.copy(
+                        items = merged,
+                        pagination = pagination,
+                        isLoading = false,
+                        isLoadingMore = false,
+                        error = null,
+                    )
+                }
+            } else {
+                _homeList.update { it.copy(isLoading = false, isLoadingMore = false, error = result.message) }
+            }
         }
     }
 
-    fun postMovie(authToken: String, title: String, description: String, watchStatus: String) {
+    fun resetHomeList() {
+        _homeList.value = MovieListUiState()
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // Watchlist  (dengan filter urgency, reset + append)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    fun loadWatchList(
+        authToken: String,
+        page: Int = 1,
+        perPage: Int = 10,
+        urgency: String? = null,
+    ) {
         viewModelScope.launch {
-            _uiState.update { it.copy(movieAdd = MovieActionUIState.Loading) }
-            val result = repository.postMovie(authToken, RequestMovie(title, description, false, watchStatus))
-            val state = if (result.status == "success") MovieActionUIState.Success(result.message)
-            else MovieActionUIState.Error(result.message)
-            _uiState.update { it.copy(movieAdd = state) }
+            val isFirstPage = page == 1
+            if (isFirstPage) {
+                _watchList.update { it.copy(isLoading = true, error = null) }
+            } else {
+                _watchList.update { it.copy(isLoadingMore = true) }
+            }
+
+            val result = repository.getMovies(authToken, null, page, perPage, null, urgency)
+
+            if (result.status == "success" && result.data != null) {
+                val pagination = result.data.pagination
+                    ?: ResponsePagination(page, perPage, result.data.watchlists.size.toLong(), 1, false, false)
+                _watchList.update { state ->
+                    val merged = if (isFirstPage) result.data.watchlists
+                    else (state.items + result.data.watchlists).distinctBy { it.id }
+                    state.copy(
+                        items = merged,
+                        pagination = pagination,
+                        isLoading = false,
+                        isLoadingMore = false,
+                        error = null,
+                    )
+                }
+            } else {
+                _watchList.update { it.copy(isLoading = false, isLoadingMore = false, error = result.message) }
+            }
         }
     }
 
-    fun getMovieById(authToken: String, movieId: String) {
+    fun resetWatchList() {
+        _watchList.value = MovieListUiState()
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // Detail
+    // ═════════════════════════════════════════════════════════════════════════
+
+    fun loadMovieById(authToken: String, movieId: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(movie = MovieUIState.Loading) }
+            _detail.update { it.copy(movie = UiState.Loading) }
             val result = repository.getMovieById(authToken, movieId)
-            val state = if (result.status == "success" && result.data != null)
-                MovieUIState.Success(result.data.watchlist)
-            else MovieUIState.Error(result.message)
-            _uiState.update { it.copy(movie = state) }
+            val state: UiState<ResponseMovieData> =
+                if (result.status == "success" && result.data != null)
+                    UiState.Success(result.data.watchlist)
+                else UiState.Error(result.message)
+            _detail.update { it.copy(movie = state) }
         }
     }
 
-    fun putMovie(authToken: String, movieId: String, title: String, description: String, isDone: Boolean, watchStatus: String) {
+    fun resetDetail() {
+        _detail.value = MovieDetailUiState()
+    }
+
+    // ── Edit ──────────────────────────────────────────────────────────────────
+
+    fun editMovie(
+        authToken: String,
+        movieId: String,
+        title: String,
+        description: String,
+        isDone: Boolean,
+        watchStatus: String,
+    ) {
         viewModelScope.launch {
-            _uiState.update { it.copy(movieChange = MovieActionUIState.Loading) }
-            val result = repository.putMovie(authToken, movieId, RequestMovie(title, description, isDone, watchStatus))
-            val state = if (result.status == "success") MovieActionUIState.Success(result.message)
-            else MovieActionUIState.Error(result.message)
-            _uiState.update { it.copy(movieChange = state) }
+            _detail.update { it.copy(edit = UiState.Loading) }
+            val result = repository.putMovie(
+                authToken, movieId,
+                RequestMovie(title, description, isDone, watchStatus)
+            )
+            val state: ActionState =
+                if (result.status == "success") UiState.Success(result.message)
+                else UiState.Error(result.message)
+            _detail.update { it.copy(edit = state) }
         }
     }
 
-    fun putMovieCover(authToken: String, movieId: String, file: MultipartBody.Part) {
+    fun resetEdit() = _detail.update { it.copy(edit = UiState.Idle) }
+
+    // ── Cover ─────────────────────────────────────────────────────────────────
+
+    fun uploadCover(authToken: String, movieId: String, file: MultipartBody.Part) {
         viewModelScope.launch {
-            _uiState.update { it.copy(movieChangeCover = MovieActionUIState.Loading) }
+            _detail.update { it.copy(cover = UiState.Loading) }
             val result = repository.putMovieCover(authToken, movieId, file)
-            val state = if (result.status == "success") MovieActionUIState.Success(result.message)
-            else MovieActionUIState.Error(result.message)
-            _uiState.update { it.copy(movieChangeCover = state) }
+            val state: ActionState =
+                if (result.status == "success") UiState.Success(result.message)
+                else UiState.Error(result.message)
+            _detail.update { it.copy(cover = state) }
         }
     }
+
+    fun resetCover() = _detail.update { it.copy(cover = UiState.Idle) }
+
+    // ── Delete ────────────────────────────────────────────────────────────────
 
     fun deleteMovie(authToken: String, movieId: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(movieDelete = MovieActionUIState.Loading) }
+            _detail.update { it.copy(delete = UiState.Loading) }
             val result = repository.deleteMovie(authToken, movieId)
-            val state = if (result.status == "success") MovieActionUIState.Success(result.message)
-            else MovieActionUIState.Error(result.message)
-            _uiState.update { it.copy(movieDelete = state) }
+            val state: ActionState =
+                if (result.status == "success") UiState.Success(result.message)
+                else UiState.Error(result.message)
+            _detail.update { it.copy(delete = state) }
         }
     }
 
-    // ── Profile operations ────────────────────────────────────────────────────
+    fun resetDelete() = _detail.update { it.copy(delete = UiState.Idle) }
 
-    fun updateProfile(authToken: String, name: String, username: String) {
+    // ═════════════════════════════════════════════════════════════════════════
+    // Add
+    // ═════════════════════════════════════════════════════════════════════════
+
+    fun addMovie(authToken: String, title: String, description: String, watchStatus: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(profileUpdate = MovieActionUIState.Loading) }
-            val result = repository.putUserMe(authToken, RequestUserChange(name, username))
-            val state = if (result.status == "success") MovieActionUIState.Success(result.message)
-            else MovieActionUIState.Error(result.message)
-            _uiState.update { it.copy(profileUpdate = state) }
+            _addState.value = UiState.Loading
+            val result = repository.postMovie(
+                authToken,
+                RequestMovie(title, description, false, watchStatus)
+            )
+            _addState.value =
+                if (result.status == "success") UiState.Success(result.message)
+                else UiState.Error(result.message)
         }
     }
 
-    fun updatePassword(authToken: String, password: String, newPassword: String) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(profilePassword = MovieActionUIState.Loading) }
-            val result = repository.putUserMePassword(authToken, RequestUserChangePassword(newPassword, password))
-            val state = if (result.status == "success") MovieActionUIState.Success(result.message)
-            else MovieActionUIState.Error(result.message)
-            _uiState.update { it.copy(profilePassword = state) }
-        }
-    }
-
-    fun updateAbout(authToken: String, about: String) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(profileAbout = MovieActionUIState.Loading) }
-            val result = repository.putUserMeAbout(authToken, RequestUserAbout(about))
-            val state = if (result.status == "success") MovieActionUIState.Success(result.message)
-            else MovieActionUIState.Error(result.message)
-            _uiState.update { it.copy(profileAbout = state) }
-        }
-    }
-
-    fun updatePhoto(authToken: String, file: MultipartBody.Part) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(profilePhoto = MovieActionUIState.Loading) }
-            val result = repository.putUserMePhoto(authToken, file)
-            val state = if (result.status == "success") MovieActionUIState.Success(result.message)
-            else MovieActionUIState.Error(result.message)
-            _uiState.update { it.copy(profilePhoto = state) }
-        }
+    fun resetAdd() {
+        _addState.value = UiState.Idle
     }
 }

@@ -25,9 +25,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
-import coil.compose.AsyncImagePainter
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import org.delcom.watchlist.BuildConfig
@@ -36,91 +36,98 @@ import org.delcom.watchlist.helper.RouteHelper
 import org.delcom.watchlist.ui.components.BottomNavComponent
 import org.delcom.watchlist.ui.components.WatchListTopBar
 import org.delcom.watchlist.ui.theme.CinemaRed
-import org.delcom.watchlist.ui.viewmodels.*
+import org.delcom.watchlist.ui.viewmodels.AuthViewModel
+import org.delcom.watchlist.ui.viewmodels.ProfileViewModel
+import org.delcom.watchlist.ui.viewmodels.UiState
 
 @Composable
 fun ProfileScreen(
     navController: NavHostController,
-    authToken: String,
-    movieViewModel: MovieViewModel,
-    authViewModel: AuthViewModel
+    authViewModel: AuthViewModel,
+    profileViewModel: ProfileViewModel,
 ) {
+    val authToken = authViewModel.authToken
+
     if (authToken.isBlank()) {
-        LaunchedEffect(Unit) { navController.navigate(RouteHelper.LOGIN) { popUpTo(0) { inclusive = true } } }
+        LaunchedEffect(Unit) {
+            navController.navigate(RouteHelper.LOGIN) { popUpTo(0) { inclusive = true } }
+        }
         return
     }
 
-    val uiState     by movieViewModel.uiState.collectAsState()
-    val uiStateAuth by authViewModel.uiState.collectAsState()
-    val context     = LocalContext.current
-    val snackbar    = remember { SnackbarHostState() }
-    // Gunakan Long sebagai cache-buster, update setiap kali upload foto sukses
-    var photoTs     by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var pendingUri  by remember { mutableStateOf<Uri?>(null) }
-    var showPhotoDialog  by remember { mutableStateOf(false) }
-    var showLogoutDialog by remember { mutableStateOf(false) }
-    var showEditSheet    by remember { mutableStateOf(false) }
-    var showPwSheet      by remember { mutableStateOf(false) }
-    var showAboutSheet   by remember { mutableStateOf(false) }
-    var logoutTriggered  by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val profileState by profileViewModel.uiState.collectAsState()
+    val snackbar = remember { SnackbarHostState() }
 
-    val profile = (uiState.profile as? ProfileUIState.Success)?.data
+    var photoTs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var pendingUri by remember { mutableStateOf<Uri?>(null) }
+    var showPhotoDialog by remember { mutableStateOf(false) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
+    var showEditSheet by remember { mutableStateOf(false) }
+    var showPwSheet by remember { mutableStateOf(false) }
+    var showAboutSheet by remember { mutableStateOf(false) }
+    var logoutTriggered by remember { mutableStateOf(false) }
+
+    val authState by authViewModel.uiState.collectAsState()
+    val profile = (profileState.profile as? UiState.Success)?.data
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let { pendingUri = it; showPhotoDialog = true }
     }
 
-    LaunchedEffect(Unit) { movieViewModel.getProfile(authToken) }
+    LaunchedEffect(Unit) { profileViewModel.loadProfile(authToken) }
 
-    LaunchedEffect(uiState.profilePhoto) {
-        when (val s = uiState.profilePhoto) {
-            is MovieActionUIState.Success -> {
-                // Update timestamp untuk force reload — ini KUNCI agar Coil fetch ulang
+    // Handle upload foto
+    LaunchedEffect(profileState.photo) {
+        when (profileState.photo) {
+            is UiState.Success -> {
                 photoTs = System.currentTimeMillis()
                 pendingUri = null
-                // Reset state DULU sebelum getProfile agar tidak loop
-                movieViewModel.resetProfilePhotoState()
-                movieViewModel.getProfile(authToken)
+                profileViewModel.resetPhoto()
+                profileViewModel.loadProfile(authToken)
             }
-            is MovieActionUIState.Error -> {
-                snackbar.showSnackbar("error|${s.message}")
-                movieViewModel.resetProfilePhotoState()
+            is UiState.Error -> {
+                snackbar.showSnackbar("error|${(profileState.photo as UiState.Error).message}")
+                profileViewModel.resetPhoto()
             }
             else -> {}
         }
     }
 
-    LaunchedEffect(uiStateAuth.authLogout) {
+    // Handle logout
+    LaunchedEffect(authState.logout) {
         if (!logoutTriggered) return@LaunchedEffect
-        when (uiStateAuth.authLogout) {
-            is AuthLogoutUIState.Success, is AuthLogoutUIState.Error ->
+        when (authState.logout) {
+            is UiState.Success, is UiState.Error ->
                 navController.navigate(RouteHelper.LOGIN) { popUpTo(0) { inclusive = true } }
             else -> {}
         }
     }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        WatchListTopBar(title = "Profil", showBackButton = false, showMenu = false, navController = navController)
+        WatchListTopBar(title = "Profil", showBackButton = false, navController = navController)
 
         Box(modifier = Modifier.weight(1f)) {
             Column(
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Spacer(Modifier.height(8.dp))
 
-                // Avatar — key berubah setiap photoTs berubah, memaksa rekomposisi + request baru
+                // Avatar
                 Box(
                     contentAlignment = Alignment.BottomEnd,
                     modifier = Modifier
                         .size(100.dp)
                         .clickable {
                             picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        }
+                        },
                 ) {
                     val profileId = profile?.id
-                    // key() memastikan SubcomposeAsyncImage di-recreate saat photoTs berubah
                     key(photoTs) {
                         SubcomposeAsyncImage(
                             model = if (profileId != null) {
@@ -136,41 +143,27 @@ fun ProfileScreen(
                                 .size(100.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentScale = ContentScale.Crop
+                            contentScale = ContentScale.Crop,
                         ) {
                             when (painter.state) {
-                                is AsyncImagePainter.State.Loading -> {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(100.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(32.dp),
-                                            strokeWidth = 2.dp,
-                                            color = CinemaRed
-                                        )
-                                    }
+                                is AsyncImagePainter.State.Loading -> Box(
+                                    modifier = Modifier.size(100.dp).clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    contentAlignment = Alignment.Center,
+                                ) { CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 2.dp, color = CinemaRed) }
+
+                                is AsyncImagePainter.State.Error -> Box(
+                                    modifier = Modifier.size(100.dp).clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        Icons.Default.Person, null,
+                                        modifier = Modifier.size(48.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
-                                is AsyncImagePainter.State.Error -> {
-                                    // Tampilkan placeholder jika gagal load
-                                    Box(
-                                        modifier = Modifier
-                                            .size(100.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Person,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(48.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
+
                                 else -> SubcomposeAsyncImageContent()
                             }
                         }
@@ -182,13 +175,8 @@ fun ProfileScreen(
                         }
                     }
 
-                    // Loading overlay saat upload sedang berjalan
-                    if (uiState.profilePhoto is MovieActionUIState.Loading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(108.dp),
-                            strokeWidth = 3.dp,
-                            color = CinemaRed
-                        )
+                    if (profileState.photo is UiState.Loading) {
+                        CircularProgressIndicator(modifier = Modifier.size(108.dp), strokeWidth = 3.dp, color = CinemaRed)
                     }
                 }
 
@@ -199,37 +187,42 @@ fun ProfileScreen(
                     CircularProgressIndicator(color = CinemaRed)
                 }
 
-                // About card
+                // Tentang
                 Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Tentang", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold))
-                            IconButton(onClick = { movieViewModel.resetProfileAboutState(); showAboutSheet = true }, modifier = Modifier.size(28.dp)) {
+                            IconButton(onClick = { profileViewModel.resetAbout(); showAboutSheet = true }, modifier = Modifier.size(28.dp)) {
                                 Icon(Icons.Default.Edit, null, tint = CinemaRed, modifier = Modifier.size(16.dp))
                             }
                         }
                         Text(
                             profile?.about?.takeIf { it.isNotBlank() } ?: "Belum ada info tentang kamu.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = if (profile?.about.isNullOrBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                            color = if (profile?.about.isNullOrBlank()) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }
 
                 HorizontalDivider()
-                OutlinedButton(onClick = { movieViewModel.resetProfileUpdateState(); showEditSheet = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                    Text("Edit Profil (Nama & Username)")
-                }
-                OutlinedButton(onClick = { movieViewModel.resetProfilePasswordState(); showPwSheet = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                    Text("Ubah Kata Sandi")
-                }
+                OutlinedButton(
+                    onClick = { profileViewModel.resetUpdate(); showEditSheet = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                ) { Text("Edit Profil (Nama & Username)") }
+                OutlinedButton(
+                    onClick = { profileViewModel.resetPassword(); showPwSheet = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                ) { Text("Ubah Kata Sandi") }
                 HorizontalDivider()
 
                 Button(
                     onClick = { showLogoutDialog = true },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CinemaRed)
+                    colors = ButtonDefaults.buttonColors(containerColor = CinemaRed),
                 ) {
                     Icon(Icons.Default.Logout, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
@@ -239,10 +232,11 @@ fun ProfileScreen(
             }
             SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter))
         }
+
         BottomNavComponent(navController)
     }
 
-    // Photo confirm dialog
+    // Dialog konfirmasi foto
     if (showPhotoDialog) {
         AlertDialog(
             onDismissRequest = { showPhotoDialog = false; pendingUri = null },
@@ -251,7 +245,10 @@ fun ProfileScreen(
             confirmButton = {
                 TextButton(onClick = {
                     pendingUri?.let {
-                        movieViewModel.updatePhoto(authToken, ImageCompressHelper.uriToCompressedMultipart(context, it, "file"))
+                        profileViewModel.uploadPhoto(
+                            authToken,
+                            ImageCompressHelper.uriToCompressedMultipart(context, it, "file")
+                        )
                     }
                     showPhotoDialog = false
                 }) { Text("Ya", color = CinemaRed) }
@@ -262,7 +259,7 @@ fun ProfileScreen(
         )
     }
 
-    // Logout confirm dialog
+    // Dialog konfirmasi logout
     if (showLogoutDialog) {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
@@ -281,46 +278,75 @@ fun ProfileScreen(
         )
     }
 
-    if (showEditSheet) EditProfileSheet(
-        profile?.name ?: "", profile?.username ?: "",
-        onDismiss = { showEditSheet = false; movieViewModel.resetProfileUpdateState() },
-        onSave = { n, u -> movieViewModel.updateProfile(authToken, n, u) },
-        state = uiState.profileUpdate,
-        onSuccess = { showEditSheet = false; movieViewModel.getProfile(authToken); movieViewModel.resetProfileUpdateState() }
-    )
-    if (showPwSheet) ChangePasswordSheet(
-        onDismiss = { showPwSheet = false; movieViewModel.resetProfilePasswordState() },
-        onSave = { o, n -> movieViewModel.updatePassword(authToken, o, n) },
-        state = uiState.profilePassword,
-        onSuccess = { showPwSheet = false; movieViewModel.resetProfilePasswordState() }
-    )
-    if (showAboutSheet) EditAboutSheet(
-        profile?.about ?: "",
-        onDismiss = { showAboutSheet = false; movieViewModel.resetProfileAboutState() },
-        onSave = { movieViewModel.updateAbout(authToken, it) },
-        state = uiState.profileAbout,
-        onSuccess = { showAboutSheet = false; movieViewModel.getProfile(authToken); movieViewModel.resetProfileAboutState() }
-    )
+    // Bottom sheets
+    if (showEditSheet) {
+        EditProfileSheet(
+            initialName = profile?.name ?: "",
+            initialUsername = profile?.username ?: "",
+            state = profileState.update,
+            onDismiss = { showEditSheet = false; profileViewModel.resetUpdate() },
+            onSave = { n, u -> profileViewModel.updateProfile(authToken, n, u) },
+            onSuccess = {
+                showEditSheet = false
+                profileViewModel.loadProfile(authToken)
+                profileViewModel.resetUpdate()
+            },
+        )
+    }
+    if (showPwSheet) {
+        ChangePasswordSheet(
+            state = profileState.password,
+            onDismiss = { showPwSheet = false; profileViewModel.resetPassword() },
+            onSave = { old, new -> profileViewModel.updatePassword(authToken, old, new) },
+            onSuccess = { showPwSheet = false; profileViewModel.resetPassword() },
+        )
+    }
+    if (showAboutSheet) {
+        EditAboutSheet(
+            initialAbout = profile?.about ?: "",
+            state = profileState.about,
+            onDismiss = { showAboutSheet = false; profileViewModel.resetAbout() },
+            onSave = { profileViewModel.updateAbout(authToken, it) },
+            onSuccess = {
+                showAboutSheet = false
+                profileViewModel.loadProfile(authToken)
+                profileViewModel.resetAbout()
+            },
+        )
+    }
 }
+
+// ── Bottom Sheets ─────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EditProfileSheet(name: String, username: String, onDismiss: () -> Unit, onSave: (String, String) -> Unit, state: MovieActionUIState, onSuccess: () -> Unit) {
-    var n by remember { mutableStateOf(name) }
-    var u by remember { mutableStateOf(username) }
-    LaunchedEffect(state) { if (state is MovieActionUIState.Success) onSuccess() }
+private fun EditProfileSheet(
+    initialName: String,
+    initialUsername: String,
+    state: org.delcom.watchlist.ui.viewmodels.ActionState,
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit,
+    onSuccess: () -> Unit,
+) {
+    var name by remember { mutableStateOf(initialName) }
+    var username by remember { mutableStateOf(initialUsername) }
+    LaunchedEffect(state) { if (state is UiState.Success) onSuccess() }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Text("Edit Profil", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
-            OutlinedTextField(n, { n = it }, label = { Text("Nama") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-            OutlinedTextField(u, { u = it }, label = { Text("Username") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+            OutlinedTextField(name, { name = it }, label = { Text("Nama") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+            OutlinedTextField(username, { username = it }, label = { Text("Username") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
             Button(
-                onClick = { if (n.isNotBlank() && u.isNotBlank()) onSave(n, u) },
+                onClick = { if (name.isNotBlank() && username.isNotBlank()) onSave(name, username) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = state !is MovieActionUIState.Loading,
-                colors = ButtonDefaults.buttonColors(containerColor = CinemaRed)
+                enabled = state !is UiState.Loading,
+                colors = ButtonDefaults.buttonColors(containerColor = CinemaRed),
             ) {
-                if (state is MovieActionUIState.Loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                if (state is UiState.Loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 else Text("Simpan")
             }
         }
@@ -329,26 +355,39 @@ private fun EditProfileSheet(name: String, username: String, onDismiss: () -> Un
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChangePasswordSheet(onDismiss: () -> Unit, onSave: (String, String) -> Unit, state: MovieActionUIState, onSuccess: () -> Unit) {
-    var oldPw   by remember { mutableStateOf("") }
-    var newPw   by remember { mutableStateOf("") }
+private fun ChangePasswordSheet(
+    state: org.delcom.watchlist.ui.viewmodels.ActionState,
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit,
+    onSuccess: () -> Unit,
+) {
+    var oldPw by remember { mutableStateOf("") }
+    var newPw by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
-    var err     by remember { mutableStateOf("") }
-    LaunchedEffect(state) { if (state is MovieActionUIState.Success) onSuccess() }
+    var err by remember { mutableStateOf("") }
+    LaunchedEffect(state) { if (state is UiState.Success) onSuccess() }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Text("Ubah Kata Sandi", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
             OutlinedTextField(oldPw, { oldPw = it }, label = { Text("Sandi Lama") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
             OutlinedTextField(newPw, { newPw = it }, label = { Text("Sandi Baru") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
             OutlinedTextField(confirm, { confirm = it }, label = { Text("Konfirmasi Sandi Baru") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), isError = err.isNotEmpty())
             if (err.isNotEmpty()) Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             Button(
-                onClick = { if (newPw != confirm) { err = "Konfirmasi tidak cocok"; return@Button }; err = ""; onSave(oldPw, newPw) },
+                onClick = {
+                    if (newPw != confirm) { err = "Konfirmasi tidak cocok"; return@Button }
+                    err = ""
+                    onSave(oldPw, newPw)
+                },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = state !is MovieActionUIState.Loading,
-                colors = ButtonDefaults.buttonColors(containerColor = CinemaRed)
+                enabled = state !is UiState.Loading,
+                colors = ButtonDefaults.buttonColors(containerColor = CinemaRed),
             ) {
-                if (state is MovieActionUIState.Loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                if (state is UiState.Loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 else Text("Simpan")
             }
         }
@@ -357,20 +396,30 @@ private fun ChangePasswordSheet(onDismiss: () -> Unit, onSave: (String, String) 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EditAboutSheet(about: String, onDismiss: () -> Unit, onSave: (String) -> Unit, state: MovieActionUIState, onSuccess: () -> Unit) {
-    var a by remember { mutableStateOf(about) }
-    LaunchedEffect(state) { if (state is MovieActionUIState.Success) onSuccess() }
+private fun EditAboutSheet(
+    initialAbout: String,
+    state: org.delcom.watchlist.ui.viewmodels.ActionState,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    onSuccess: () -> Unit,
+) {
+    var about by remember { mutableStateOf(initialAbout) }
+    LaunchedEffect(state) { if (state is UiState.Success) onSuccess() }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Text("Edit Tentang", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
-            OutlinedTextField(a, { a = it }, label = { Text("Tentang kamu") }, modifier = Modifier.fillMaxWidth(), minLines = 4, shape = RoundedCornerShape(12.dp))
+            OutlinedTextField(about, { about = it }, label = { Text("Tentang kamu") }, modifier = Modifier.fillMaxWidth(), minLines = 4, shape = RoundedCornerShape(12.dp))
             Button(
-                onClick = { onSave(a) },
+                onClick = { onSave(about) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = state !is MovieActionUIState.Loading,
-                colors = ButtonDefaults.buttonColors(containerColor = CinemaRed)
+                enabled = state !is UiState.Loading,
+                colors = ButtonDefaults.buttonColors(containerColor = CinemaRed),
             ) {
-                if (state is MovieActionUIState.Loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                if (state is UiState.Loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 else Text("Simpan")
             }
         }

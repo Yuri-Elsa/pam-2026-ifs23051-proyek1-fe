@@ -14,18 +14,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.delcom.watchlist.network.data.WatchStatus
 
 /**
- * Small badge displaying watch status with color coding:
- *   🔵 Sedang Ditonton   (blue)
- *   🟣 Belum Ditonton    (purple)
- *   🟢 Sudah Ditonton    (green)
+ * Badge kecil untuk menampilkan status tontonan dengan warna yang sesuai.
+ *
+ * - 🔵 Sedang Ditonton  (biru)
+ * - 🟣 Belum Ditonton   (ungu)
+ * - 🟢 Sudah Ditonton   (hijau)
  */
 @Composable
-fun WatchStatusBadge(status: WatchStatus, modifier: Modifier = Modifier) {
+fun WatchStatusBadge(
+    status: WatchStatus,
+    modifier: Modifier = Modifier,
+) {
     val bgColor  = Color(status.bgColorHex)
     val dotColor = Color(status.dotColorHex)
 
@@ -34,7 +39,7 @@ fun WatchStatusBadge(status: WatchStatus, modifier: Modifier = Modifier) {
             .clip(RoundedCornerShape(20.dp))
             .background(bgColor)
             .padding(horizontal = 10.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(modifier = Modifier.size(8.dp).background(dotColor, CircleShape))
         Spacer(modifier = Modifier.width(5.dp))
@@ -42,53 +47,66 @@ fun WatchStatusBadge(status: WatchStatus, modifier: Modifier = Modifier) {
             text = status.label,
             color = dotColor,
             fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }
 
 /**
- * Horizontal selector for watch status — used in Add/Edit screens.
+ * Selector horizontal untuk memilih status tontonan — dipakai di layar Add/Edit.
  */
 @Composable
 fun WatchStatusSelector(
     selectedStatus: WatchStatus,
     onStatusSelected: (WatchStatus) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
-    val options = WatchStatus.values()
-    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        options.forEach { status ->
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        WatchStatus.entries.forEach { status ->
             val isSelected = selectedStatus == status
-            val bgColor  = Color(status.bgColorHex)
-            val dotColor = Color(status.dotColorHex)
+            val bgColor    = Color(status.bgColorHex)
+            val dotColor   = Color(status.dotColorHex)
 
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(if (isSelected) bgColor else MaterialTheme.colorScheme.surfaceVariant)
+                    .background(
+                        if (isSelected) bgColor
+                        else MaterialTheme.colorScheme.surfaceVariant
+                    )
                     .border(
                         width = if (isSelected) 1.5.dp else 0.dp,
                         color = if (isSelected) dotColor else Color.Transparent,
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
                     )
                     .clickable { onStatusSelected(status) }
                     .padding(vertical = 10.dp, horizontal = 4.dp),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
                     Box(
                         modifier = Modifier
                             .size(8.dp)
-                            .background(if (isSelected) dotColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), CircleShape)
+                            .background(
+                                if (isSelected) dotColor
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                CircleShape,
+                            ),
                     )
                     Text(
                         text = status.label,
-                        color = if (isSelected) dotColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (isSelected) dotColor
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 10.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        textAlign = TextAlign.Center,
                         maxLines = 2,
                     )
                 }

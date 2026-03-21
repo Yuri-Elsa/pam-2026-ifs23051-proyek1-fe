@@ -26,39 +26,35 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
-import kotlinx.coroutines.launch
 import org.delcom.watchlist.helper.RouteHelper
 import org.delcom.watchlist.ui.theme.CinemaGold
 import org.delcom.watchlist.ui.theme.CinemaRed
-import org.delcom.watchlist.ui.viewmodels.AuthActionUIState
 import org.delcom.watchlist.ui.viewmodels.AuthViewModel
+import org.delcom.watchlist.ui.viewmodels.UiState
 
 @Composable
 fun RegisterScreen(
     navController: NavHostController,
     snackbarHost: SnackbarHostState,
-    authViewModel: AuthViewModel
+    authViewModel: AuthViewModel,
 ) {
     val uiState by authViewModel.uiState.collectAsState()
-    val scope   = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) { authViewModel.resetRegisterState() }
 
-    LaunchedEffect(uiState.authRegister) {
+    LaunchedEffect(uiState.register) {
         if (!isLoading) return@LaunchedEffect
-        when (val s = uiState.authRegister) {
-            is AuthActionUIState.Success -> {
+        when (val s = uiState.register) {
+            is UiState.Success -> {
                 isLoading = false
                 navController.navigate(RouteHelper.LOGIN) {
-                    popUpTo(RouteHelper.REGISTER) { inclusive = true }; launchSingleTop = true
+                    popUpTo(RouteHelper.REGISTER) { inclusive = true }
+                    launchSingleTop = true
                 }
             }
-            is AuthActionUIState.Error -> {
-                isLoading = false
-                errorMessage = s.message
-            }
+            is UiState.Error -> { isLoading = false; errorMessage = s.message }
             else -> {}
         }
     }
@@ -73,29 +69,24 @@ fun RegisterScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(64.dp))
-
             Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .background(CinemaRed.copy(alpha = 0.15f), RoundedCornerShape(20.dp)),
-                contentAlignment = Alignment.Center
+                modifier = Modifier.size(80.dp).background(CinemaRed.copy(alpha = 0.15f), RoundedCornerShape(20.dp)),
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Default.MovieCreation, null, tint = CinemaRed, modifier = Modifier.size(44.dp))
             }
-
             Spacer(Modifier.height(16.dp))
             Text("WatchList", style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.ExtraBold, color = Color.White, letterSpacing = 1.sp))
             Text("Buat akun baru", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White.copy(alpha = 0.6f)), textAlign = TextAlign.Center)
             Spacer(Modifier.height(40.dp))
-
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E2E)),
-                elevation = CardDefaults.cardElevation(12.dp)
+                elevation = CardDefaults.cardElevation(12.dp),
             ) {
                 RegisterForm(
                     isLoading = isLoading,
@@ -103,7 +94,6 @@ fun RegisterScreen(
                     onClearError = { errorMessage = "" },
                     onRegister = { name, username, password ->
                         errorMessage = ""
-                        // Validasi client-side
                         when {
                             name.isBlank() -> { errorMessage = "Nama tidak boleh kosong"; return@RegisterForm }
                             username.isBlank() -> { errorMessage = "Username tidak boleh kosong"; return@RegisterForm }
@@ -112,17 +102,14 @@ fun RegisterScreen(
                         }
                         isLoading = true
                         authViewModel.register(name, username, password)
-                    }
+                    },
                 )
             }
-
             Spacer(Modifier.height(20.dp))
-
             TextButton(onClick = { navController.popBackStack() }) {
                 Text("Sudah punya akun? ", color = Color.White.copy(alpha = 0.6f))
                 Text("Masuk", color = CinemaGold, fontWeight = FontWeight.Bold)
             }
-
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -133,9 +120,9 @@ private fun RegisterForm(
     isLoading: Boolean,
     errorMessage: String,
     onClearError: () -> Unit,
-    onRegister: (String, String, String) -> Unit
+    onRegister: (String, String, String) -> Unit,
 ) {
-    var name     by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var showPass by remember { mutableStateOf(false) }
@@ -145,59 +132,24 @@ private fun RegisterForm(
     Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Daftar", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = Color.White))
 
-        // Error banner
         if (errorMessage.isNotEmpty()) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFFFFEBEE), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().background(Color(0xFFFFEBEE), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(18.dp))
-                Text(
-                    text = errorMessage,
-                    color = Color(0xFFD32F2F),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.weight(1f)
-                )
+                Icon(Icons.Default.ErrorOutline, null, tint = Color(0xFFD32F2F), modifier = Modifier.size(18.dp))
+                Text(errorMessage, color = Color(0xFFD32F2F), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                 IconButton(onClick = onClearError, modifier = Modifier.size(20.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.Close, null, tint = Color(0xFFD32F2F), modifier = Modifier.size(14.dp))
                 }
             }
         }
 
+        OutlinedTextField(name, { name = it; onClearError() }, label = { Text("Nama Lengkap") }, leadingIcon = { Icon(Icons.Default.Badge, null, tint = CinemaRed) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = cinemaTextFieldColors(), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), keyboardActions = KeyboardActions(onNext = { uFocus.requestFocus() }))
+        OutlinedTextField(username, { username = it; onClearError() }, label = { Text("Username") }, leadingIcon = { Icon(Icons.Default.Person, null, tint = CinemaRed) }, singleLine = true, modifier = Modifier.fillMaxWidth().focusRequester(uFocus), shape = RoundedCornerShape(12.dp), colors = cinemaTextFieldColors(), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), keyboardActions = KeyboardActions(onNext = { pFocus.requestFocus() }))
         OutlinedTextField(
-            value = name,
-            onValueChange = { name = it; onClearError() },
-            label = { Text("Nama Lengkap") },
-            leadingIcon = { Icon(Icons.Default.Badge, null, tint = CinemaRed) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = cinemaTextFieldColors(),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            keyboardActions = KeyboardActions(onNext = { uFocus.requestFocus() })
-        )
-
-        OutlinedTextField(
-            value = username,
-            onValueChange = { username = it; onClearError() },
-            label = { Text("Username") },
-            leadingIcon = { Icon(Icons.Default.Person, null, tint = CinemaRed) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().focusRequester(uFocus),
-            shape = RoundedCornerShape(12.dp),
-            colors = cinemaTextFieldColors(),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            keyboardActions = KeyboardActions(onNext = { pFocus.requestFocus() })
-        )
-
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it; onClearError() },
-            label = { Text("Password") },
+            password, { password = it; onClearError() }, label = { Text("Password") },
             leadingIcon = { Icon(Icons.Default.Lock, null, tint = CinemaRed) },
             trailingIcon = {
                 IconButton(onClick = { showPass = !showPass }) {
@@ -205,33 +157,21 @@ private fun RegisterForm(
                 }
             },
             visualTransformation = if (showPass) VisualTransformation.None else PasswordVisualTransformation(),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().focusRequester(pFocus),
-            shape = RoundedCornerShape(12.dp),
-            colors = cinemaTextFieldColors(),
+            singleLine = true, modifier = Modifier.fillMaxWidth().focusRequester(pFocus),
+            shape = RoundedCornerShape(12.dp), colors = cinemaTextFieldColors(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = {
-                focusMgr.clearFocus()
-                onRegister(name, username, password)
-            }),
+            keyboardActions = KeyboardActions(onSend = { focusMgr.clearFocus(); onRegister(name, username, password) }),
             supportingText = {
-                Text(
-                    "Minimal 6 karakter",
-                    color = if (password.isNotEmpty() && password.length < 6) Color(0xFFD32F2F)
-                    else Color.White.copy(alpha = 0.4f),
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
+                Text("Minimal 6 karakter", color = if (password.isNotEmpty() && password.length < 6) Color(0xFFD32F2F) else Color.White.copy(alpha = 0.4f), style = MaterialTheme.typography.labelSmall)
+            },
         )
-
         Spacer(Modifier.height(4.dp))
-
         Button(
             onClick = { onRegister(name, username, password) },
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(12.dp),
             enabled = !isLoading,
-            colors = ButtonDefaults.buttonColors(containerColor = CinemaRed)
+            colors = ButtonDefaults.buttonColors(containerColor = CinemaRed),
         ) {
             if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
             else Text("Daftar", fontWeight = FontWeight.Bold, color = Color.White)

@@ -11,39 +11,41 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import org.delcom.watchlist.network.data.WatchStatus
+import org.delcom.watchlist.ui.components.WatchListSnackbar
 import org.delcom.watchlist.ui.components.WatchStatusSelector
-import org.delcom.watchlist.ui.viewmodels.MovieActionUIState
+import org.delcom.watchlist.ui.viewmodels.AuthViewModel
 import org.delcom.watchlist.ui.viewmodels.MovieViewModel
+import org.delcom.watchlist.ui.viewmodels.UiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MovieAddScreen(
-    authToken: String,
+    authViewModel: AuthViewModel,
     movieViewModel: MovieViewModel,
     navController: NavHostController,
     onNavigateBack: () -> Unit,
 ) {
-    val uiState by movieViewModel.uiState.collectAsState()
+    val authToken = authViewModel.authToken
+    val addState by movieViewModel.addState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var releaseYear by remember { mutableStateOf("") }
     var watchStatus by remember { mutableStateOf(WatchStatus.PLANNED) }
-    var isLoading by remember { mutableStateOf(false) }
 
-    LaunchedEffect(uiState.movieAdd) {
-        when (val state = uiState.movieAdd) {
-            is MovieActionUIState.Success -> {
-                isLoading = false
+    val isLoading = addState is UiState.Loading
+
+    LaunchedEffect(addState) {
+        when (val s = addState) {
+            is UiState.Success -> {
                 navController.previousBackStackEntry?.savedStateHandle?.set("movie_added", true)
-                movieViewModel.resetMovieAddState()
+                movieViewModel.resetAdd()
                 onNavigateBack()
             }
-            is MovieActionUIState.Error -> {
-                isLoading = false
-                snackbarHostState.showSnackbar("error|${state.message}")
-                movieViewModel.resetMovieAddState()
+            is UiState.Error -> {
+                snackbarHostState.showSnackbar("error|${s.message}")
+                movieViewModel.resetAdd()
             }
             else -> {}
         }
@@ -52,7 +54,7 @@ fun MovieAddScreen(
     Scaffold(
         snackbarHost = {
             SnackbarHost(snackbarHostState) { data ->
-                org.delcom.watchlist.ui.components.WatchListSnackbar(data) { snackbarHostState.currentSnackbarData?.dismiss() }
+                WatchListSnackbar(data) { snackbarHostState.currentSnackbarData?.dismiss() }
             }
         },
         topBar = {
@@ -62,9 +64,9 @@ fun MovieAddScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, "Kembali")
                     }
-                }
+                },
             )
-        }
+        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -72,29 +74,24 @@ fun MovieAddScreen(
                 .padding(padding)
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            // ── Title ─────────────────────────────────────────────────────────
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
                 label = { Text("Judul Film *") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                placeholder = { Text("Contoh: Interstellar") }
+                placeholder = { Text("Contoh: Interstellar") },
             )
-
-            // ── Release Year (optional) ───────────────────────────────────────
             OutlinedTextField(
                 value = releaseYear,
                 onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) releaseYear = it },
                 label = { Text("Tahun Rilis (opsional)") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                placeholder = { Text("Contoh: 2014") }
+                placeholder = { Text("Contoh: 2014") },
             )
-
-            // ── Description (optional) ────────────────────────────────────────
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
@@ -102,34 +99,24 @@ fun MovieAddScreen(
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
                 maxLines = 6,
-                placeholder = { Text("Ceritakan sedikit tentang film ini...") }
+                placeholder = { Text("Ceritakan sedikit tentang film ini...") },
             )
-
-            // ── Watch Status ──────────────────────────────────────────────────
             Text("Status Tonton", style = MaterialTheme.typography.labelLarge)
-            WatchStatusSelector(
-                selectedStatus = watchStatus,
-                onStatusSelected = { watchStatus = it }
-            )
-
+            WatchStatusSelector(selectedStatus = watchStatus, onStatusSelected = { watchStatus = it })
             Spacer(Modifier.height(8.dp))
-
-            // ── Submit ────────────────────────────────────────────────────────
             Button(
                 onClick = {
                     if (title.isBlank()) return@Button
-                    isLoading = true
-                    // Encode year into description if provided
                     val finalDesc = buildString {
                         if (releaseYear.isNotBlank()) append("[$releaseYear] ")
                         append(description)
                     }.trim()
-                    movieViewModel.postMovie(authToken, title.trim(), finalDesc, watchStatus.apiValue)
+                    movieViewModel.addMovie(authToken, title.trim(), finalDesc, watchStatus.apiValue)
                 },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
-                enabled = !isLoading && title.isNotBlank()
+                enabled = !isLoading && title.isNotBlank(),
             ) {
-                if (isLoading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                if (isLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                 else Text("Simpan ke Watchlist")
             }
         }

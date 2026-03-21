@@ -24,21 +24,18 @@ import org.delcom.watchlist.helper.ToolsHelper
 import org.delcom.watchlist.network.data.ResponseMovieData
 
 /**
- * Movie list item — poster thumbnail di kiri, info di kanan.
- * coverUrl tidak lagi diterima dari luar; dibangun dari movie.cover langsung.
+ * Card item film — poster thumbnail di kiri, info di kanan, tombol hapus di pojok.
  */
 @Composable
 fun MovieItemUI(
     movie: ResponseMovieData,
     onClick: () -> Unit,
     onDelete: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
-    val status = movie.watchStatus
 
-    // Bangun URL dari path cover yang dikembalikan API
-    // Contoh: movie.cover = "uploads/watchlists/948d07d9-....jpg"
+    // URL cover dibangun dari path relatif yang dikembalikan API
     val coverUrl = remember(movie.cover, movie.updatedAt) {
         ToolsHelper.getMovieImageUrl(movie.cover, movie.updatedAt)
     }
@@ -49,13 +46,13 @@ fun MovieItemUI(
             .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(IntrinsicSize.Min),
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.Top,
         ) {
             // ── Poster ────────────────────────────────────────────────────────
             Box(
@@ -64,31 +61,32 @@ fun MovieItemUI(
                     .height(100.dp)
                     .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 if (coverUrl != null) {
                     SubcomposeAsyncImage(
                         model = coverUrl,
                         contentDescription = movie.title,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
                     ) {
                         when (painter.state) {
-                            is AsyncImagePainter.State.Loading -> {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
+                            is AsyncImagePainter.State.Loading -> Box(
+                                Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
                             }
-                            is AsyncImagePainter.State.Error -> PlaceholderPoster()
-                            else -> SubcomposeAsyncImageContent()
+                            is AsyncImagePainter.State.Error   -> PosterPlaceholder()
+                            else                               -> SubcomposeAsyncImageContent()
                         }
                     }
                 } else {
-                    PlaceholderPoster()
+                    PosterPlaceholder()
                 }
             }
 
@@ -96,7 +94,7 @@ fun MovieItemUI(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 0.dp)
+                    .padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
             ) {
                 Text(
                     text = movie.title,
@@ -104,19 +102,17 @@ fun MovieItemUI(
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
-
                 if (movie.releaseYear != null) {
                     Spacer(Modifier.height(2.dp))
                     Text(
                         text = movie.releaseYear!!,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                 }
-
                 if (movie.cleanDescription.isNotBlank()) {
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -124,29 +120,31 @@ fun MovieItemUI(
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-
                 Spacer(Modifier.height(8.dp))
-                WatchStatusBadge(status = status)
+                WatchStatusBadge(status = movie.watchStatus)
             }
 
-            // ── Delete ────────────────────────────────────────────────────────
+            // ── Tombol hapus ──────────────────────────────────────────────────
             IconButton(
                 onClick = { showDeleteDialog = true },
-                modifier = Modifier.padding(top = 4.dp, end = 4.dp).size(36.dp)
+                modifier = Modifier
+                    .padding(top = 4.dp, end = 4.dp)
+                    .size(36.dp),
             ) {
                 Icon(
                     Icons.Default.Delete,
                     contentDescription = "Hapus",
                     tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
     }
 
+    // Dialog konfirmasi hapus
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -159,29 +157,30 @@ fun MovieItemUI(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) { Text("Batal") }
-            }
+            },
         )
     }
 }
 
+/** Placeholder saat gambar belum ada atau gagal dimuat. */
 @Composable
-fun PlaceholderPoster() {
+fun PosterPlaceholder() {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
     ) {
         Icon(
             Icons.Default.Movie,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            modifier = Modifier.size(28.dp)
+            modifier = Modifier.size(28.dp),
         )
         Spacer(Modifier.height(2.dp))
         Text(
             "No Poster",
             fontSize = 8.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
         )
     }
 }

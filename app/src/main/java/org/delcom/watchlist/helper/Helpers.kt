@@ -12,15 +12,18 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.delcom.watchlist.BuildConfig
 import java.io.ByteArrayOutputStream
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ToolsHelper — URL builder untuk aset gambar
+// ═════════════════════════════════════════════════════════════════════════════
+
 object ToolsHelper {
+
     /**
-     * Bangun URL cover film.
-     * Backend mengembalikan field `cover` berisi path relatif, contoh:
-     *   "uploads/watchlists/948d07d9-....jpg"
-     * Jadi URL lengkapnya = BASE_URL + cover
+     * Membangun URL lengkap cover film dari path relatif yang dikembalikan API.
      *
-     * Parameter [coverPath] = nilai `movie.cover` dari API (bisa null/blank → return null).
-     * Parameter [t] = cache-buster timestamp.
+     * @param coverPath  nilai `movie.cover` dari API, misal `"uploads/watchlists/abc.jpg"`.
+     *                   Jika null/blank, mengembalikan null (tidak ada cover).
+     * @param t          cache-buster timestamp; diubah setiap kali gambar diperbarui.
      */
     fun getMovieImageUrl(coverPath: String?, t: String = "0"): String? {
         if (coverPath.isNullOrBlank()) return null
@@ -28,9 +31,11 @@ object ToolsHelper {
     }
 
     /**
-     * URL foto profil user.
-     * Pola path profil diasumsikan sama: BASE_URL + path relatif dari field photo user.
-     * Jika backend belum mengembalikan field photo, pakai fallback userId.
+     * Membangun URL foto profil user.
+     *
+     * @param photoPath  path relatif foto dari API (opsional).
+     * @param userId     ID user; digunakan sebagai fallback bila [photoPath] kosong.
+     * @param t          cache-buster timestamp.
      */
     fun getUserImageUrl(photoPath: String?, userId: String, t: String = "0"): String {
         return if (!photoPath.isNullOrBlank()) {
@@ -41,22 +46,42 @@ object ToolsHelper {
     }
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ImageCompressHelper — kompresi & konversi gambar untuk upload
+// ═════════════════════════════════════════════════════════════════════════════
+
 object ImageCompressHelper {
+
     private const val MAX_WIDTH  = 1080
     private const val MAX_HEIGHT = 1080
     private const val QUALITY    = 80
 
-    fun uriToCompressedMultipart(context: Context, uri: Uri, partName: String): MultipartBody.Part {
+    /**
+     * Mengkompresi gambar dari [uri], memperbaiki rotasi EXIF, lalu membungkusnya
+     * sebagai [MultipartBody.Part] siap kirim ke API.
+     *
+     * @param context   context untuk membuka ContentResolver.
+     * @param uri       URI gambar dari galeri atau kamera.
+     * @param partName  nama field multipart (misal `"file"`).
+     */
+    fun uriToCompressedMultipart(
+        context: Context,
+        uri: Uri,
+        partName: String,
+    ): MultipartBody.Part {
         val bytes = compressImage(context, uri)
         val body  = bytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
         return MultipartBody.Part.createFormData(partName, "image.jpg", body)
     }
 
     private fun compressImage(context: Context, uri: Uri): ByteArray {
+        // Baca dimensi dulu tanpa decode penuh (hemat memori)
         val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+        context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, opts)
+        }
 
-        opts.inSampleSize = calculateInSampleSize(opts, MAX_WIDTH, MAX_HEIGHT)
+        opts.inSampleSize   = calculateInSampleSize(opts, MAX_WIDTH, MAX_HEIGHT)
         opts.inJustDecodeBounds = false
 
         var bitmap = context.contentResolver.openInputStream(uri)!!.use {
@@ -65,45 +90,66 @@ object ImageCompressHelper {
         bitmap = fixRotation(context, uri, bitmap)
         bitmap = scaleBitmap(bitmap, MAX_WIDTH, MAX_HEIGHT)
 
-        val out = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
-        bitmap.recycle()
-        return out.toByteArray()
+        return ByteArrayOutputStream().also { out ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
+            bitmap.recycle()
+        }.toByteArray()
     }
 
-    private fun calculateInSampleSize(opts: BitmapFactory.Options, reqW: Int, reqH: Int): Int {
+    private fun calculateInSampleSize(
+        opts: BitmapFactory.Options,
+        reqW: Int,
+        reqH: Int,
+    ): Int {
         var n = 1
-        val (h, w) = opts.outHeight to opts.outWidth
+        val h = opts.outHeight
+        val w = opts.outWidth
         if (h > reqH || w > reqW) {
-            val hH = h / 2; val hW = w / 2
-            while (hH / n >= reqH && hW / n >= reqW) n *= 2
+            val halfH = h / 2
+            val halfW = w / 2
+            while (halfH / n >= reqH && halfW / n >= reqW) n *= 2
         }
         return n
     }
 
-    private fun fixRotation(context: Context, uri: Uri, bmp: Bitmap): Bitmap = try {
-        val s = context.contentResolver.openInputStream(uri) ?: return bmp
-        val exif = ExifInterface(s); s.close()
-        val rot = when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+    private fun fixRotation(context: Context, uri: Uri, bmp: Bitmap): Bitmap = runCatching {
+        val stream = context.contentResolver.openInputStream(uri) ?: return bmp
+        val exif = ExifInterface(stream)
+        stream.close()
+        val rotation = when (
+            exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        ) {
             ExifInterface.ORIENTATION_ROTATE_90  -> 90f
             ExifInterface.ORIENTATION_ROTATE_180 -> 180f
             ExifInterface.ORIENTATION_ROTATE_270 -> 270f
             else -> return bmp
         }
-        val m = Matrix().apply { postRotate(rot) }
-        val r = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
-        if (r != bmp) bmp.recycle(); r
-    } catch (e: Exception) { bmp }
+        val matrix = Matrix().apply { postRotate(rotation) }
+        val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+        if (rotated != bmp) bmp.recycle()
+        rotated
+    }.getOrDefault(bmp)
 
     private fun scaleBitmap(bmp: Bitmap, maxW: Int, maxH: Int): Bitmap {
         if (bmp.width <= maxW && bmp.height <= maxH) return bmp
-        val scale = minOf(maxW.toFloat() / bmp.width, maxH.toFloat() / bmp.height)
-        val s = Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true)
-        if (s != bmp) bmp.recycle(); return s
+        val scale  = minOf(maxW.toFloat() / bmp.width, maxH.toFloat() / bmp.height)
+        val scaled = Bitmap.createScaledBitmap(
+            bmp,
+            (bmp.width * scale).toInt(),
+            (bmp.height * scale).toInt(),
+            true,
+        )
+        if (scaled != bmp) bmp.recycle()
+        return scaled
     }
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// RouteHelper — konstanta dan builder untuk rute navigasi
+// ═════════════════════════════════════════════════════════════════════════════
+
 object RouteHelper {
+    // Rute statis
     const val LOGIN    = "auth/login"
     const val REGISTER = "auth/register"
     const val HOME     = "home"
@@ -113,6 +159,7 @@ object RouteHelper {
     const val MOVIE_EDIT   = "movies/{movieId}/edit"
     const val PROFILE  = "profile"
 
+    // Rute dinamis
     fun movieDetail(id: String) = "movies/$id"
     fun movieEdit(id: String)   = "movies/$id/edit"
 }
